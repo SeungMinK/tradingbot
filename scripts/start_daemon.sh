@@ -79,8 +79,15 @@ start_bg "api" ".venv/bin/uvicorn cryptobot.api.main:app --host 0.0.0.0 --port 8
 sleep 1
 
 # 2. 봇
+# caffeinate -i: Mac 유휴 절전 차단. 절전 진입 시 APScheduler 스레드가 멈춰
+# 4h 헬스체크·hourly 등 주기 job이 misfire로 스킵되는 문제를 예방한다.
+# 봇 프로세스 종료 시 caffeinate도 같이 종료됨.
 echo -e "${CYAN}[2/4] 트레이딩 봇${NC}"
-start_bg "bot" ".venv/bin/python -m cryptobot.bot.main"
+if command -v caffeinate &> /dev/null; then
+    start_bg "bot" "caffeinate -i .venv/bin/python -m cryptobot.bot.main"
+else
+    start_bg "bot" ".venv/bin/python -m cryptobot.bot.main"
+fi
 
 sleep 1
 

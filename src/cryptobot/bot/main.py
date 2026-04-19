@@ -67,13 +67,25 @@ class CryptoBot:
         self._notifier.notify_bot_status("시작됨")
         self._safety_check()
 
+        # Mac sleep/suspend 등으로 스케줄러가 수분간 멈추면 APScheduler 기본 misfire_grace=1초를
+        # 초과한 job은 스킵된다(2026-04-19 09:42 periodic_health 스킵 사례). 밀린 job이라도 깨어나면
+        # 1회 실행되도록 미스파이어 유예를 크게 + coalesce=True로 중복 누적 방지.
+        # tick은 실시간성이 중요하므로 기본값(짧게) 유지, 그 외 주기 job은 관대하게.
+        _LAX_MISFIRE = {"misfire_grace_time": 3600, "coalesce": True}
+
         self._scheduler.add_job(self._tick, "interval", seconds=self._tick_interval, id="main_tick")
-        self._scheduler.add_job(self._daily_report, "cron", hour=0, minute=0, id="daily_report")
-        self._scheduler.add_job(self._daily_health_check, "cron", hour=6, minute=0, id="daily_health")
+        self._scheduler.add_job(self._daily_report, "cron", hour=0, minute=0, id="daily_report", **_LAX_MISFIRE)
+        self._scheduler.add_job(self._daily_health_check, "cron", hour=6, minute=0, id="daily_health", **_LAX_MISFIRE)
         # #195: 4시간 주기 경량 헬스체크 — 외출 중에도 Slack으로 상태 확인
-        self._scheduler.add_job(self._periodic_health_check, "interval", hours=4, id="periodic_health")
-        self._scheduler.add_job(self._hourly_reconciliation, "interval", hours=1, id="hourly_reconciliation")
-        self._scheduler.add_job(self._weekly_report, "cron", day_of_week="sun", hour=3, minute=0, id="weekly_report")
+        self._scheduler.add_job(
+            self._periodic_health_check, "interval", hours=4, id="periodic_health", **_LAX_MISFIRE
+        )
+        self._scheduler.add_job(
+            self._hourly_reconciliation, "interval", hours=1, id="hourly_reconciliation", **_LAX_MISFIRE
+        )
+        self._scheduler.add_job(
+            self._weekly_report, "cron", day_of_week="sun", hour=3, minute=0, id="weekly_report", **_LAX_MISFIRE
+        )
         self._scheduler.add_job(
             self._weekly_backtest,
             "cron",
@@ -81,9 +93,12 @@ class CryptoBot:
             hour=2,
             minute=0,
             id="weekly_backtest",
+            **_LAX_MISFIRE,
         )
-        self._scheduler.add_job(self._monthly_audit, "cron", day=1, hour=4, minute=0, id="monthly_audit")
-        self._scheduler.add_job(self._llm_analyze, "interval", minutes=10, id="llm_analyze")
+        self._scheduler.add_job(
+            self._monthly_audit, "cron", day=1, hour=4, minute=0, id="monthly_audit", **_LAX_MISFIRE
+        )
+        self._scheduler.add_job(self._llm_analyze, "interval", minutes=10, id="llm_analyze", **_LAX_MISFIRE)
 
         signal.signal(signal.SIGINT, self._shutdown)
         signal.signal(signal.SIGTERM, self._shutdown)
