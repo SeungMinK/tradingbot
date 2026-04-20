@@ -104,6 +104,42 @@ def calculate_atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int
     return round(atr, 2) if not np.isnan(atr) else None
 
 
+def calculate_adx(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> float | None:
+    """ADX (Average Directional Index) — 추세 강도 0~100.
+
+    > 25: 강한 추세 / < 20: 약한 추세 (횡보) / 20~25: 모호.
+    추세 *강도*만 측정 — 방향(상승/하락)과 무관.
+
+    #214: 동적 stop_loss 결정에 활용. 횡보장(ADX<20)에선 stop을 넓혀 노이즈 손절 방지,
+    추세장(ADX>=20)에선 좁혀 빠른 손절. 백테스트 결과 4전략 중 3개 개선.
+
+    Args:
+        high, low, close: OHLCV 시리즈
+        period: ADX 기간 (기본 14)
+
+    Returns:
+        ADX 값 (0~100), 데이터 부족 시 None
+    """
+    if len(close) < period * 2:
+        return None
+
+    high_diff = high.diff()
+    low_diff = -low.diff()
+    plus_dm = high_diff.clip(lower=0).where(high_diff > low_diff, 0)
+    minus_dm = low_diff.clip(lower=0).where(low_diff > high_diff, 0)
+
+    prev_close = close.shift(1)
+    tr = pd.concat([high - low, (high - prev_close).abs(), (low - prev_close).abs()], axis=1).max(axis=1)
+    atr = tr.rolling(period).mean()
+
+    plus_di = 100 * (plus_dm.rolling(period).mean() / atr).fillna(0)
+    minus_di = 100 * (minus_dm.rolling(period).mean() / atr).fillna(0)
+    di_sum = (plus_di + minus_di).replace(0, np.nan)
+    dx = 100 * (plus_di - minus_di).abs() / di_sum
+    adx = dx.rolling(period).mean().iloc[-1]
+    return round(float(adx), 2) if pd.notna(adx) else None
+
+
 def calculate_all(df: pd.DataFrame) -> dict:
     """OHLCV DataFrame으로부터 모든 지표를 한번에 계산.
 
