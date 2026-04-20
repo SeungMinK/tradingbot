@@ -103,10 +103,11 @@ def test_roi_table_from_out_of_range_input_clipped(db):
         "allow_trading": True,
         "recommended_strategy": "bb_rsi_combined",
         "recommended_params": {
-            "roi_10min": 999.0,  # (1.0, 5.0) → 5.0
-            "roi_30min": 999.0,  # (0.5, 3.0) → 3.0
-            "roi_60min": 999.0,  # (0.3, 2.0) → 2.0
-            "roi_120min": 999.0,  # (0.1, 1.0) → 1.0
+            # #222 상향된 HARD_LIMITS 상한에 맞춰 clipped 검증
+            "roi_10min": 999.0,  # (1.5, 6.0) → 6.0
+            "roi_30min": 999.0,  # (1.0, 4.0) → 4.0
+            "roi_60min": 999.0,  # (0.8, 3.0) → 3.0
+            "roi_120min": 999.0,  # (0.5, 2.0) → 2.0
         },
         "reasoning": "t",
     }
@@ -115,10 +116,10 @@ def test_roi_table_from_out_of_range_input_clipped(db):
 
     row = db.execute("SELECT value FROM bot_config WHERE key = 'roi_table'").fetchone()
     table = json.loads(dict(row)["value"])
-    assert table["10"] == 5.0
-    assert table["30"] == 3.0
-    assert table["60"] == 2.0
-    assert table["120"] == 1.0
+    assert table["10"] == 6.0
+    assert table["30"] == 4.0
+    assert table["60"] == 3.0
+    assert table["120"] == 2.0
 
 
 # ===================================================================
