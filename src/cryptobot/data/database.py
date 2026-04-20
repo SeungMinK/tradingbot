@@ -304,6 +304,23 @@ CREATE TABLE IF NOT EXISTS backtest_results (
 );
 CREATE INDEX IF NOT EXISTS idx_bt_run_date ON backtest_results(run_date, strategy_name, coin);
 
+-- #216: 분봉 OHLCV. 일봉 ATR/ADX는 봇의 실제 동작 주기(분 단위)와 미스매치 →
+-- 분봉으로 재측정해 변동성/추세 지표 정밀화. 5분봉 기본 (200캔들 ≈ 17시간치).
+CREATE TABLE IF NOT EXISTS ohlcv_minutes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    coin TEXT NOT NULL,
+    interval_min INTEGER NOT NULL DEFAULT 5,  -- 1, 5, 15, 60
+    timestamp DATETIME NOT NULL,
+    open REAL NOT NULL,
+    high REAL NOT NULL,
+    low REAL NOT NULL,
+    close REAL NOT NULL,
+    volume REAL NOT NULL,
+    collected_at DATETIME NOT NULL,
+    UNIQUE(coin, interval_min, timestamp)
+);
+CREATE INDEX IF NOT EXISTS idx_ohlcv_minutes_lookup ON ohlcv_minutes(coin, interval_min, timestamp DESC);
+
 -- #206: 추가 입금 추적. 잔고 검증이 첫 starting_balance만 "총 입금액"으로 보던 한계 해결.
 CREATE TABLE IF NOT EXISTS capital_deposits (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

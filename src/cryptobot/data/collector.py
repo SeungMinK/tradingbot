@@ -38,6 +38,10 @@ class DataCollector:
         self._last_ohlcv_fetch: float = 0  # OHLCV 캐시 타임스탬프
         self._ohlcv_cache_seconds: int = 3600  # 1시간 캐시
         self._last_price: float = 0  # 가격 급변 감지용
+        # #216: 분봉 OHLCV 수집 — 매 시간 1회만 호출 (rate-limit 보호 + 데이터 충분).
+        # 5분봉 200캔들 = 약 17시간치. 다음 호출 사이 새로 생긴 캔들만 INSERT OR IGNORE.
+        self._last_minutes_fetch: float = 0
+        self._minutes_fetch_interval_sec: int = 3600  # 1시간마다
 
     @property
     def latest_df(self) -> "pd.DataFrame | None":
@@ -59,6 +63,9 @@ class DataCollector:
 
             # OHLCV 일봉 데이터 저장 (하루 1회)
             self._save_ohlcv_daily()
+
+            # #216: 5분봉 OHLCV 저장 (1시간에 1회 호출)
+            self._save_ohlcv_minutes(interval_min=5)
 
             logger.debug("스냅샷 저장: id=%d, price=%s", snapshot_id, f"{snapshot['price']:,.0f}")
             return snapshot_id
@@ -198,6 +205,49 @@ class DataCollector:
         self._db.commit()
         self._last_ohlcv_save_date = today_str
         logger.info("OHLCV 일봉 저장: %s %d일치", self._coin, len(rows))
+
+    def _save_ohlcv_minutes(self, interval_min: int = 5, count: int = 200) -> int:
+        """#216: 분봉 OHLCV 수집·저장.
+
+        업비트 API는 1m/3m/5m/15m/30m/60m/240m 지원. 5분봉 200캔들 = 약 17시간치.
+        매 1시간에 1회만 호출(rate-limit). UNIQUE 제약으로 중복 방지.
+
+        Returns:
+            새로 저장된 캔들 수.
+        """
+        import time as _time
+
+        now_ts = _time.time()
+        if now_ts - self._last_minutes_fetch < self._minutes_fetch_interval_sec:
+            return 0
+
+        try:
+            df = pyupbit.get_ohlcv(self._coin, interval=f"minute{interval_min}", count=count)
+        except Exception as e:
+            logger.warning("분봉 수집 실패: %s %s", self._coin, e)
+            return 0
+        if df is None or df.empty:
+            return 0
+
+        now_str = _utcnow()
+        rows = []
+        for idx, row in df.iterrows():
+            ts_str = idx.strftime("%Y-%m-%d %H:%M:%S") if hasattr(idx, "strftime") else str(idx)
+            rows.append((self._coin, interval_min, ts_str, row["open"], row["high"],
+                        row["low"], row["close"], row["volume"], now_str))
+
+        self._db.executemany(
+            """
+            INSERT OR IGNORE INTO ohlcv_minutes
+              (coin, interval_min, timestamp, open, high, low, close, volume, collected_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+        self._db.commit()
+        self._last_minutes_fetch = now_ts
+        logger.info("분봉(%dm) 저장 시도: %s %d캔들", interval_min, self._coin, len(rows))
+        return len(rows)
 
     def get_latest_snapshot(self) -> dict | None:
         """이 코인의 가장 최근 스냅샷 조회."""
