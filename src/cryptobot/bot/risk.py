@@ -30,6 +30,20 @@ class RiskLimits:
     # 단 pnl <= hard_stop_loss_floor_pct는 매수 신호 무관 무조건 손절 (안전장치).
     signal_conflict_buy_confidence_threshold: float = 0.7
     hard_stop_loss_floor_pct: float = -10.0
+    # #212: ATR 기반 동적 stop_loss. 변동성 큰 코인에 -5% 고정은 너무 빡빡할 거란 가설로 도입.
+    # 매수 시점에 ATR(N일)로 코인별 변동성을 측정해 stop_loss 폭을 결정한다.
+    #   dynamic_stop = -atr_pct × atr_stop_loss_multiplier (clamp [-max_abs, -min_abs])
+    # ATR 계산 실패 또는 enable=False면 strategy 기본 stop_loss_pct 사용.
+    #
+    # ⚠️ enable=False 기본값: 일봉 데이터 백테스트(15코인 sweep)에서 어떤 multiplier(0.5~3.0)도
+    # 고정 -5%를 못 이김. multiplier 큰 값은 추세 하락 코인의 stop을 풀어 더 큰 손실 유발.
+    # 코드는 인프라로 유지 — 분봉 ATR/다른 변동성 지표(BB폭, 표준편차)로 재실험할 때 활용.
+    # 운영에 켜려면 config_mgr 통해 enable_dynamic_stop_loss=true.
+    enable_dynamic_stop_loss: bool = False
+    atr_period: int = 14
+    atr_stop_loss_multiplier: float = 2.0
+    dynamic_stop_loss_min_abs_pct: float = 5.0  # 최소 손절폭 (=기존 -5%, 너무 좁아서 노이즈로 손절 방지)
+    dynamic_stop_loss_max_abs_pct: float = 12.0  # 최대 손절폭 (-12%로 hard floor와 정합)
     min_order_krw: float = 5_000  # 업비트 최소 주문 금액 (원)
     # 계좌 전체 일일 실현 손실 한도 (매수 차단용, 매도는 허용).
     # 코인별 한도(max_daily_loss_pct)와 별도로 "계좌 전체"를 보호.

@@ -16,6 +16,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 
 from cryptobot.bot.coin_manager import CoinManager
 from cryptobot.bot.config import config
+from cryptobot.bot.indicators import calculate_atr
 from cryptobot.bot.config_manager import ConfigManager
 from cryptobot.bot.health_checker import HealthChecker
 from cryptobot.bot.monthly_audit import MonthlyAudit
@@ -136,6 +137,19 @@ class CryptoBot:
             self._risk.limits.hard_stop_loss_floor_pct = float(
                 self._config_mgr.get("hard_stop_loss_floor_pct", "-10.0")
             )
+            # #212: ATR 동적 stop_loss
+            self._risk.limits.enable_dynamic_stop_loss = (
+                self._config_mgr.get("enable_dynamic_stop_loss", "true").lower() == "true"
+            )
+            self._risk.limits.atr_stop_loss_multiplier = float(
+                self._config_mgr.get("atr_stop_loss_multiplier", "2.0")
+            )
+            self._risk.limits.dynamic_stop_loss_min_abs_pct = float(
+                self._config_mgr.get("dynamic_stop_loss_min_abs_pct", "5.0")
+            )
+            self._risk.limits.dynamic_stop_loss_max_abs_pct = float(
+                self._config_mgr.get("dynamic_stop_loss_max_abs_pct", "12.0")
+            )
 
             new_interval = int(self._config_mgr.get("tick_interval_seconds", "60"))
             if new_interval != self._tick_interval:
@@ -221,6 +235,27 @@ class CryptoBot:
                         pass
             self._strategy_sel.current_strategy = orig
             self._strategy_sel.current_strategy_name = orig_name
+
+    def _calc_dynamic_stop_loss_pct(self, df, current_price: float) -> float | None:
+        """#212: ATR 기반 동적 stop_loss(%) 계산.
+
+        ATR(N) / 현재가 × 100 = 변동성 % → multiplier 곱해 stop 폭 결정.
+        clamp [-max_abs, -min_abs]. ATR 계산 실패하거나 enable=False면 None 반환 (호출측 fallback).
+        """
+        limits = self._risk.limits
+        if not limits.enable_dynamic_stop_loss or df is None or current_price <= 0:
+            return None
+        try:
+            atr = calculate_atr(df["high"], df["low"], df["close"], period=limits.atr_period)
+        except Exception as e:
+            logger.debug("ATR 계산 실패: %s", e)
+            return None
+        if atr is None or atr <= 0:
+            return None
+        atr_pct = atr / current_price * 100
+        dynamic = -atr_pct * limits.atr_stop_loss_multiplier
+        # clamp 음수 영역: -max_abs ≤ dynamic ≤ -min_abs
+        return max(-limits.dynamic_stop_loss_max_abs_pct, min(-limits.dynamic_stop_loss_min_abs_pct, dynamic))
 
     def _check_and_buy(self, snapshot, price, snapshot_id, coin=None):
         """매수 신호 확인 및 실행."""
@@ -335,6 +370,14 @@ class CryptoBot:
             )
             return
         if order.success:
+            # #212: ATR 기반 동적 stop_loss — 변동성 큰 코인은 손절폭 자동 확장.
+            dyn_stop = self._calc_dynamic_stop_loss_pct(df, order.price)
+            stop_to_save = dyn_stop if dyn_stop is not None else s.params.stop_loss_pct
+            if dyn_stop is not None and abs(dyn_stop - s.params.stop_loss_pct) >= 0.5:
+                logger.info(
+                    "[%s] 동적 stop_loss: %.1f%% (기본 %.1f%%) — ATR 기반",
+                    coin, dyn_stop, s.params.stop_loss_pct,
+                )
             tid = self._recorder.record_trade(
                 coin=coin,
                 side="buy",
@@ -346,7 +389,7 @@ class CryptoBot:
                 trigger_reason=sig.reason,
                 trigger_value=sig.trigger_value,
                 param_k_value=s.params.extra.get("k_value"),
-                param_stop_loss=s.params.stop_loss_pct,
+                param_stop_loss=stop_to_save,
                 param_trailing_stop=s.params.trailing_stop_pct,
                 market_state_at_trade=snapshot.get("market_state"),
                 btc_price_at_trade=price,
@@ -414,6 +457,14 @@ class CryptoBot:
         if buy_time.tzinfo is None:
             buy_time = buy_time.replace(tzinfo=timezone.utc)
         s._hold_minutes = int((datetime.now(timezone.utc) - buy_time).total_seconds() / 60)
+
+        # #212: 매수 시 저장된 동적 stop_loss를 strategy.params에 일시 override.
+        # 코인별 ATR로 결정된 폭이 적용되어 변동성에 맞는 손절선이 작동.
+        # finally에서 _orig_stop_loss로 복원 (#152 패턴 활용).
+        saved_stop = active_trade.get("param_stop_loss")
+        if saved_stop is not None and not hasattr(s, "_orig_stop_loss"):
+            s._orig_stop_loss = s.params.stop_loss_pct
+            s.params.stop_loss_pct = float(saved_stop)
 
         sig = s.check_sell(df, price, buy_price)
         pj = self._config_mgr.get_strategy_params_json(sn)
