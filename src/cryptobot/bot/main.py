@@ -83,6 +83,10 @@ class CryptoBot:
         self._scheduler.add_job(
             self._hourly_reconciliation, "interval", hours=1, id="hourly_reconciliation", **_LAX_MISFIRE
         )
+        # #206: 일일 입금 sync (06:30) — 일일 헬스체크(06:00) 직후 실행
+        self._scheduler.add_job(
+            self._daily_deposit_sync, "cron", hour=6, minute=30, id="daily_deposit_sync", **_LAX_MISFIRE
+        )
         self._scheduler.add_job(
             self._weekly_report, "cron", day_of_week="sun", hour=3, minute=0, id="weekly_report", **_LAX_MISFIRE
         )
@@ -640,6 +644,14 @@ class CryptoBot:
             checker.run_periodic()
         except Exception as e:
             logger.error("주기 헬스체크 에러: %s", e, exc_info=True)
+
+    def _daily_deposit_sync(self):
+        """#206: 매일 1회 업비트 입금 내역 sync — 신규 입금 자동 등록 + Slack 알림."""
+        try:
+            checker = HealthChecker(self._db, self._trader, self._notifier)
+            checker.sync_deposits()
+        except Exception as e:
+            logger.error("입금 sync 에러: %s", e, exc_info=True)
 
     def _hourly_reconciliation(self):
         """매시간 체결 정합성 검증."""

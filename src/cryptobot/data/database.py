@@ -303,6 +303,19 @@ CREATE TABLE IF NOT EXISTS backtest_results (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_bt_run_date ON backtest_results(run_date, strategy_name, coin);
+
+-- #206: 추가 입금 추적. 잔고 검증이 첫 starting_balance만 "총 입금액"으로 보던 한계 해결.
+CREATE TABLE IF NOT EXISTS capital_deposits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    currency TEXT NOT NULL DEFAULT 'KRW',
+    amount_krw REAL NOT NULL,
+    deposited_at DATETIME NOT NULL,
+    source TEXT NOT NULL DEFAULT 'api',           -- 'api' | 'manual' | 'initial'
+    upbit_uuid TEXT UNIQUE,                       -- 업비트 입금 uuid (중복 방지)
+    note TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_capital_deposits_at ON capital_deposits(deposited_at DESC);
 """
 
 # 기본 전략 파라미터 (최초 1회 삽입)
