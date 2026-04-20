@@ -44,6 +44,16 @@ class RiskLimits:
     atr_stop_loss_multiplier: float = 2.0
     dynamic_stop_loss_min_abs_pct: float = 5.0  # 최소 손절폭 (=기존 -5%, 너무 좁아서 노이즈로 손절 방지)
     dynamic_stop_loss_max_abs_pct: float = 12.0  # 최대 손절폭 (-12%로 hard floor와 정합)
+    # #214: ADX 기반 동적 stop_loss — 추세 강도에 따라 손절폭 조정.
+    # 약한 추세(ADX<threshold)=횡보 → stop 넓게(노이즈 흡수)
+    # 강한 추세(ADX≥threshold) → stop 좁게(잘못된 방향 빠른 손절)
+    # 백테스트 4전략 검증: bb_rsi +0.63%, vol_breakout +3.06%, breakout_momentum +0.32%,
+    # ma_crossover -0.28%. 평균 효과 양수. ATR 기반(#212)과 다르게 운영 활성화 가치 있음.
+    enable_adx_dynamic_stop: bool = True
+    adx_period: int = 14
+    adx_threshold: float = 20.0
+    adx_low_trend_stop_pct: float = -7.0  # ADX<threshold (횡보) 일 때
+    adx_high_trend_stop_pct: float = -3.5  # ADX>=threshold (추세) 일 때
     min_order_krw: float = 5_000  # 업비트 최소 주문 금액 (원)
     # 계좌 전체 일일 실현 손실 한도 (매수 차단용, 매도는 허용).
     # 코인별 한도(max_daily_loss_pct)와 별도로 "계좌 전체"를 보호.

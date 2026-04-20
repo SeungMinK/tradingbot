@@ -16,7 +16,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 
 from cryptobot.bot.coin_manager import CoinManager
 from cryptobot.bot.config import config
-from cryptobot.bot.indicators import calculate_atr
+from cryptobot.bot.indicators import calculate_adx, calculate_atr
 from cryptobot.bot.config_manager import ConfigManager
 from cryptobot.bot.health_checker import HealthChecker
 from cryptobot.bot.monthly_audit import MonthlyAudit
@@ -150,6 +150,19 @@ class CryptoBot:
             self._risk.limits.dynamic_stop_loss_max_abs_pct = float(
                 self._config_mgr.get("dynamic_stop_loss_max_abs_pct", "12.0")
             )
+            # #214: ADX 동적 stop_loss
+            self._risk.limits.enable_adx_dynamic_stop = (
+                self._config_mgr.get("enable_adx_dynamic_stop", "true").lower() == "true"
+            )
+            self._risk.limits.adx_threshold = float(
+                self._config_mgr.get("adx_threshold", "20.0")
+            )
+            self._risk.limits.adx_low_trend_stop_pct = float(
+                self._config_mgr.get("adx_low_trend_stop_pct", "-7.0")
+            )
+            self._risk.limits.adx_high_trend_stop_pct = float(
+                self._config_mgr.get("adx_high_trend_stop_pct", "-3.5")
+            )
 
             new_interval = int(self._config_mgr.get("tick_interval_seconds", "60"))
             if new_interval != self._tick_interval:
@@ -235,6 +248,26 @@ class CryptoBot:
                         pass
             self._strategy_sel.current_strategy = orig
             self._strategy_sel.current_strategy_name = orig_name
+
+    def _calc_adx_dynamic_stop_loss_pct(self, df) -> float | None:
+        """#214: ADX 기반 동적 stop_loss(%) 계산.
+
+        ADX < threshold (약한 추세, 횡보) → 넓은 stop (노이즈 흡수)
+        ADX ≥ threshold (강한 추세) → 좁은 stop (잘못된 방향 빠른 손절)
+
+        백테스트 검증 효과 (4전략 평균 양수). ATR 동적(#212)보다 우수.
+        """
+        limits = self._risk.limits
+        if not limits.enable_adx_dynamic_stop or df is None:
+            return None
+        try:
+            adx = calculate_adx(df["high"], df["low"], df["close"], period=limits.adx_period)
+        except Exception as e:
+            logger.debug("ADX 계산 실패: %s", e)
+            return None
+        if adx is None:
+            return None
+        return limits.adx_low_trend_stop_pct if adx < limits.adx_threshold else limits.adx_high_trend_stop_pct
 
     def _calc_dynamic_stop_loss_pct(self, df, current_price: float) -> float | None:
         """#212: ATR 기반 동적 stop_loss(%) 계산.
@@ -370,13 +403,16 @@ class CryptoBot:
             )
             return
         if order.success:
-            # #212: ATR 기반 동적 stop_loss — 변동성 큰 코인은 손절폭 자동 확장.
-            dyn_stop = self._calc_dynamic_stop_loss_pct(df, order.price)
+            # #214 우선: ADX 기반 동적 stop (검증된 +효과). 비활성/실패 시 #212 ATR fallback.
+            adx_stop = self._calc_adx_dynamic_stop_loss_pct(df)
+            atr_stop = self._calc_dynamic_stop_loss_pct(df, order.price)
+            dyn_stop = adx_stop if adx_stop is not None else atr_stop
             stop_to_save = dyn_stop if dyn_stop is not None else s.params.stop_loss_pct
             if dyn_stop is not None and abs(dyn_stop - s.params.stop_loss_pct) >= 0.5:
+                source = "ADX" if adx_stop is not None else "ATR"
                 logger.info(
-                    "[%s] 동적 stop_loss: %.1f%% (기본 %.1f%%) — ATR 기반",
-                    coin, dyn_stop, s.params.stop_loss_pct,
+                    "[%s] 동적 stop_loss: %.1f%% (기본 %.1f%%) — %s 기반",
+                    coin, dyn_stop, s.params.stop_loss_pct, source,
                 )
             tid = self._recorder.record_trade(
                 coin=coin,
