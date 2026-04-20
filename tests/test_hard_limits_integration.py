@@ -69,7 +69,7 @@ def test_bot_config_never_gets_out_of_range_value(db):
             "stop_loss_pct": -50.0,  # HARD_LIMITS (-20, -5) → -20
             "trailing_stop_pct": -30.0,  # (-10, -1) → -10
             "max_position_per_coin_pct": 200,  # (30, 80) → 80
-            "roi_60min": 100.0,  # (0.3, 2.0) → 2.0
+            "roi_240min": 100.0,  # (0.8, 3.0) → 3.0
         },
         "reasoning": "t",
     }
@@ -103,11 +103,11 @@ def test_roi_table_from_out_of_range_input_clipped(db):
         "allow_trading": True,
         "recommended_strategy": "bb_rsi_combined",
         "recommended_params": {
-            # #222 상향된 HARD_LIMITS 상한에 맞춰 clipped 검증
+            # #224 시간 구간 확장 후 HARD_LIMITS 상한 clipped 검증
             "roi_10min": 999.0,  # (1.5, 6.0) → 6.0
-            "roi_30min": 999.0,  # (1.0, 4.0) → 4.0
-            "roi_60min": 999.0,  # (0.8, 3.0) → 3.0
-            "roi_120min": 999.0,  # (0.5, 2.0) → 2.0
+            "roi_120min": 999.0,  # (1.0, 4.0) → 4.0
+            "roi_240min": 999.0,  # (0.8, 3.0) → 3.0
+            "roi_600min": 999.0,  # (0.5, 2.0) → 2.0
         },
         "reasoning": "t",
     }
@@ -117,9 +117,9 @@ def test_roi_table_from_out_of_range_input_clipped(db):
     row = db.execute("SELECT value FROM bot_config WHERE key = 'roi_table'").fetchone()
     table = json.loads(dict(row)["value"])
     assert table["10"] == 6.0
-    assert table["30"] == 4.0
-    assert table["60"] == 3.0
-    assert table["120"] == 2.0
+    assert table["120"] == 4.0
+    assert table["240"] == 3.0
+    assert table["600"] == 2.0
 
 
 # ===================================================================
@@ -234,9 +234,9 @@ def test_hard_limits_covers_all_llm_adjustable_params():
         "trailing_stop_pct",
         "max_position_per_coin_pct",
         "roi_10min",
-        "roi_30min",
-        "roi_60min",
         "roi_120min",
+        "roi_240min",
+        "roi_600min",
         "max_spread_pct",
         "emergency_held_pct",
         "emergency_non_held_pct",
