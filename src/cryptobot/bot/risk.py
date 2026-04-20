@@ -25,6 +25,11 @@ class RiskLimits:
     # #208: 매도 직후 같은 코인 재매수 차단. 손절(-5%)과 RSI 과매도 매수 신호가
     # 같은 가격 사건에 대해 모순적으로 발생하는 패턴(수수료 왕복 0.1% 손실)을 막는다.
     coin_reentry_cooldown_minutes: int = 10
+    # #210: 손절 vs 매수 신호 충돌 통합 의사결정.
+    # 손절 트리거 시점에 같은 코인 매수 신호 confidence가 이 값 이상이면 손절 보류 ("들고 간다").
+    # 단 pnl <= hard_stop_loss_floor_pct는 매수 신호 무관 무조건 손절 (안전장치).
+    signal_conflict_buy_confidence_threshold: float = 0.7
+    hard_stop_loss_floor_pct: float = -10.0
     min_order_krw: float = 5_000  # 업비트 최소 주문 금액 (원)
     # 계좌 전체 일일 실현 손실 한도 (매수 차단용, 매도는 허용).
     # 코인별 한도(max_daily_loss_pct)와 별도로 "계좌 전체"를 보호.

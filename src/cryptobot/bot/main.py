@@ -130,6 +130,12 @@ class CryptoBot:
             self._risk.limits.coin_reentry_cooldown_minutes = int(
                 self._config_mgr.get("coin_reentry_cooldown_minutes", "10")
             )
+            self._risk.limits.signal_conflict_buy_confidence_threshold = float(
+                self._config_mgr.get("signal_conflict_buy_confidence_threshold", "0.7")
+            )
+            self._risk.limits.hard_stop_loss_floor_pct = float(
+                self._config_mgr.get("hard_stop_loss_floor_pct", "-10.0")
+            )
 
             new_interval = int(self._config_mgr.get("tick_interval_seconds", "60"))
             if new_interval != self._tick_interval:
@@ -431,6 +437,42 @@ class CryptoBot:
 
         pnl_pct = (price - buy_price) / buy_price * 100
         net_pnl = pnl_pct - BaseStrategy.ROUND_TRIP_FEE_PCT
+
+        # #210: 손절 vs 매수 신호 충돌 통합 의사결정 ("더 높은 신호 채택").
+        # ALGO처럼 손절 직후 1분 뒤 RSI 매수 신호로 재매수하는 패턴은 같은 가격 사건에 대한
+        # 모순적 결정. 손절 시점에 매수 신호 강도가 임계 이상이면 손절 보류 ("들고 간다").
+        # 단 pnl <= hard_floor면 안전장치로 무조건 손절.
+        if not sig.is_profit_taking and "손절" in sig.reason:
+            hard_floor = self._risk.limits.hard_stop_loss_floor_pct
+            if pnl_pct > hard_floor:
+                buy_sig = s.check_buy(df, price)
+                conf_threshold = self._risk.limits.signal_conflict_buy_confidence_threshold
+                if buy_sig.signal_type == "buy" and buy_sig.confidence >= conf_threshold:
+                    skip_msg = (
+                        f"손절-매수 충돌: 손절 -{abs(pnl_pct):.2f}% vs "
+                        f"매수 confidence {buy_sig.confidence:.2f} ≥ {conf_threshold:.2f} → 보유 유지"
+                    )
+                    logger.info("[%s] %s", coin, skip_msg)
+                    self._recorder.record_signal(
+                        coin=coin,
+                        signal_type="hold",
+                        strategy=sn,
+                        confidence=buy_sig.confidence,
+                        trigger_reason=f"신호 충돌: {sig.reason} vs {buy_sig.reason}",
+                        current_price=price,
+                        trigger_value=pnl_pct,
+                        skip_reason=skip_msg,
+                        snapshot_id=snapshot_id,
+                        strategy_params_json=pj,
+                    )
+                    if self._notifier and self._notifier.is_configured:
+                        self._notifier.send(
+                            f"⚖️ *손절-매수 충돌 보류* — {coin}\n"
+                            f">  손절 {pnl_pct:+.2f}% vs 매수 conf {buy_sig.confidence:.2f}\n"
+                            f">  사유: {buy_sig.reason}"
+                        )
+                    return
+
         # 수수료 가드: Signal에 명시된 is_profit_taking 플래그 기반 (이전엔 reason 문자열 매칭 취약).
         # 익절 신호(ROI/트레일링/중간선 등)만 수수료로 인한 실질 음수 시 차단.
         # 손절/전략 판단(RSI 정상복귀, 데드크로스 등)은 통과.
