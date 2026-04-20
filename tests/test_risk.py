@@ -290,7 +290,8 @@ def test_default_consecutive_losses_allows_4_losses():
 
     다른 가드(일일 손실률 등)는 분리 테스트. 여기선 연속 손실 카운트만 검증.
     """
-    limits = RiskLimits(max_consecutive_losses=5, max_daily_loss_pct=-100.0)
+    # cooldown=0: 이 테스트는 매도 직후 매수 가능 여부만 검증, #208 재매수 가드는 분리 테스트.
+    limits = RiskLimits(max_consecutive_losses=5, max_daily_loss_pct=-100.0, coin_reentry_cooldown_minutes=0)
     rm, recorder, db = _make_risk_manager(limits)
     try:
         for _ in range(4):
