@@ -259,11 +259,19 @@ def test_fee_guard_allows_stop_loss_even_when_negative(db):
         "손절",
         is_profit_taking=False,
     )
+    # #210 충돌 가드: 매수 신호 없음 → 손절 진행 (이 테스트의 기대 동작 유지)
+    strat.check_buy.return_value = Signal("hold", 0.0, "매수 신호 없음")
     strat.params = MagicMock()
     strat.params.extra = {}
     strat.params.stop_loss_pct = -5
     strat.params.trailing_stop_pct = -2
     strat._hold_minutes = 10
+    # #210: _risk mock — 충돌 가드가 limits 참조
+    bot._risk = MagicMock()
+    bot._risk.limits = MagicMock(
+        signal_conflict_buy_confidence_threshold=0.7,
+        hard_stop_loss_floor_pct=-10.0,
+    )
     bot._strategy_sel = MagicMock()
     bot._strategy_sel.current_strategy = strat
     bot._strategy_sel.current_strategy_name = "test_strategy"
