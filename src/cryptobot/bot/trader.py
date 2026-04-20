@@ -295,6 +295,66 @@ class Trader:
         self._ensure_ready()
         return self._fetch_order_detail(order_uuid)
 
+    def get_deposit_history(self, currency: str = "KRW", limit: int = 100) -> list[dict]:
+        """업비트 입금 내역을 조회한다 (state=ACCEPTED만).
+
+        pyupbit가 입금 API를 노출하지 않아 직접 JWT 서명 후 호출.
+
+        Args:
+            currency: 'KRW' 등
+            limit: 최대 조회 건수 (업비트는 100이 한도)
+
+        Returns:
+            [{"uuid", "amount_krw", "deposited_at"}, ...] (최신순)
+        """
+        self._ensure_ready()
+        import hashlib
+        import uuid as _uuid
+        from urllib.parse import urlencode
+
+        import jwt
+        import requests
+
+        query = {"currency": currency, "state": "ACCEPTED", "limit": str(limit)}
+        qhash = hashlib.sha512(urlencode(query).encode()).hexdigest()
+        payload = {
+            "access_key": config.upbit.access_key,
+            "nonce": str(_uuid.uuid4()),
+            "query_hash": qhash,
+            "query_hash_alg": "SHA512",
+        }
+        token = jwt.encode(payload, config.upbit.secret_key)
+        try:
+            resp = requests.get(
+                "https://api.upbit.com/v1/deposits",
+                params=query,
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            logger.warning("입금 내역 조회 실패: %s", e)
+            raise APIError(f"입금 내역 조회 실패: {e}") from e
+
+        if not isinstance(data, list):
+            return []
+
+        results = []
+        for d in data:
+            try:
+                results.append(
+                    {
+                        "uuid": d.get("uuid"),
+                        "amount_krw": float(d.get("amount", 0)),
+                        # done_at(완료시각) 우선, 없으면 created_at
+                        "deposited_at": d.get("done_at") or d.get("created_at"),
+                    }
+                )
+            except (TypeError, ValueError):
+                continue
+        return results
+
     def _ensure_ready(self) -> None:
         """API Key 설정 확인."""
         if not self.is_ready:

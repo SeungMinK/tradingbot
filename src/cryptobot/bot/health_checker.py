@@ -312,6 +312,86 @@ class HealthChecker:
             logger.error("전략 일관성 체크 실패: %s", e)
             return {"status": "warning", "message": str(e)}
 
+    def sync_deposits(self, since: str | None = None) -> dict:
+        """업비트 입금 내역을 조회해 capital_deposits 테이블에 신규 건만 등록.
+
+        upbit_uuid UNIQUE 제약으로 중복 삽입 방지. 신규 건이 있으면 Slack 알림.
+
+        Args:
+            since: ISO datetime 문자열 (예: '2026-04-04'). 이 시각 이전 입금은 무시.
+                None이면 첫 daily_reports.date(=봇 시작일)를 자동 사용.
+                업비트 API가 수년 전 입금까지 반환하는데 그건 운영 자본과 무관하므로 cutoff 필수.
+
+        Returns:
+            {"status", "fetched", "new", "total_added_krw"}
+        """
+        try:
+            if not self._trader or not self._trader.is_ready:
+                return {"status": "ok", "message": "API 미설정 — 스킵"}
+
+            # cutoff 결정
+            if since is None:
+                first = self._db.execute(
+                    "SELECT date FROM daily_reports ORDER BY date ASC LIMIT 1"
+                ).fetchone()
+                since = dict(first)["date"] if first else "2000-01-01"
+            since_str = str(since)[:10]  # 'YYYY-MM-DD'
+
+            history = self._trader.get_deposit_history(currency="KRW", limit=100)
+            fetched = len(history)
+            if fetched == 0:
+                return {"status": "ok", "fetched": 0, "new": 0}
+
+            new_count = 0
+            new_total = 0.0
+            new_items: list[dict] = []
+            skipped_old = 0
+            for h in history:
+                if not h.get("uuid"):
+                    continue
+                # cutoff 비교 (deposited_at는 ISO 문자열, 앞 10자리가 날짜)
+                dep_date = str(h.get("deposited_at") or "")[:10]
+                if dep_date < since_str:
+                    skipped_old += 1
+                    continue
+                # 이미 있는지
+                exist = self._db.execute(
+                    "SELECT 1 FROM capital_deposits WHERE upbit_uuid = ?", (h["uuid"],)
+                ).fetchone()
+                if exist:
+                    continue
+                self._db.execute(
+                    """
+                    INSERT INTO capital_deposits (currency, amount_krw, deposited_at, source, upbit_uuid)
+                    VALUES ('KRW', ?, ?, 'api', ?)
+                    """,
+                    (h["amount_krw"], h["deposited_at"], h["uuid"]),
+                )
+                new_count += 1
+                new_total += h["amount_krw"]
+                new_items.append(h)
+
+            self._db.commit()
+
+            if new_count > 0 and self._notifier:
+                lines = [f"💰 *신규 입금 감지* — `{new_count}건` (총 `{new_total:,.0f}원`)"]
+                for it in new_items[:5]:
+                    lines.append(f">  · {it['deposited_at']}  ·  `{it['amount_krw']:,.0f}원`")
+                self._notifier.send("\n".join(lines))
+                logger.info("신규 입금 %d건 등록: %.0f원", new_count, new_total)
+
+            return {
+                "status": "ok",
+                "fetched": fetched,
+                "new": new_count,
+                "total_added_krw": new_total,
+                "skipped_old": skipped_old,
+                "since": since_str,
+            }
+        except Exception as e:
+            logger.error("입금 sync 실패: %s", e, exc_info=True)
+            return {"status": "warning", "message": str(e)}
+
     def reconcile_trades(self) -> dict:
         """미검증 거래의 체결 정합성을 검증하고 보정한다.
 
@@ -558,13 +638,19 @@ class HealthChecker:
                 if cp:
                     db_coin_value += ad["amount"] * cp
 
-            # 최초 입금액이 없으므로 daily_reports의 starting_balance 참고
-            first_report = self._db.execute(
-                "SELECT starting_balance_krw FROM daily_reports ORDER BY date ASC LIMIT 1"
+            # 총 입금액: capital_deposits 테이블에 등록된 모든 입금 합산.
+            # 비어 있으면(레거시) 첫 daily_reports.starting_balance를 fallback.
+            dep_row = self._db.execute(
+                "SELECT COALESCE(SUM(amount_krw), 0) AS total FROM capital_deposits WHERE currency = 'KRW'"
             ).fetchone()
-            initial_balance = dict(first_report)["starting_balance_krw"] if first_report else 0
+            total_deposits = dict(dep_row)["total"] if dep_row else 0
+            if total_deposits <= 0:
+                first_report = self._db.execute(
+                    "SELECT starting_balance_krw FROM daily_reports ORDER BY date ASC LIMIT 1"
+                ).fetchone()
+                total_deposits = dict(first_report)["starting_balance_krw"] if first_report else 0
 
-            return initial_balance + net_flow + db_coin_value
+            return total_deposits + net_flow + db_coin_value
         except Exception as e:
             logger.error("DB 총자산 역산 실패: %s", e)
             return 0
