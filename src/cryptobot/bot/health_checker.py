@@ -312,6 +312,12 @@ class HealthChecker:
             logger.error("전략 일관성 체크 실패: %s", e)
             return {"status": "warning", "message": str(e)}
 
+    # #220: 봇 시작 *직전*(예: 1~3일 전) 입금이 cutoff에 걸려 누락되는 케이스가 발견됨
+    # (사용자 4/3 입금 100,000원이 4/4 첫 daily_report 기준 cutoff에 막힘). 봇 시작 며칠 전
+    # 입금까지 자본금으로 인정해야 손익 계산이 정확. 7일 여유로 풀고, 그래도 옛 입금
+    # (수년 전)은 충분히 차단.
+    DEPOSIT_SYNC_CUTOFF_BUFFER_DAYS = 7
+
     def sync_deposits(self, since: str | None = None) -> dict:
         """업비트 입금 내역을 조회해 capital_deposits 테이블에 신규 건만 등록.
 
@@ -319,8 +325,8 @@ class HealthChecker:
 
         Args:
             since: ISO datetime 문자열 (예: '2026-04-04'). 이 시각 이전 입금은 무시.
-                None이면 첫 daily_reports.date(=봇 시작일)를 자동 사용.
-                업비트 API가 수년 전 입금까지 반환하는데 그건 운영 자본과 무관하므로 cutoff 필수.
+                None이면 첫 daily_reports.date - DEPOSIT_SYNC_CUTOFF_BUFFER_DAYS 를 자동 사용.
+                봇 시작 직전 입금까지 자본금으로 잡되, 수년 전 옛 입금은 차단.
 
         Returns:
             {"status", "fetched", "new", "total_added_krw"}
@@ -334,7 +340,14 @@ class HealthChecker:
                 first = self._db.execute(
                     "SELECT date FROM daily_reports ORDER BY date ASC LIMIT 1"
                 ).fetchone()
-                since = dict(first)["date"] if first else "2000-01-01"
+                if first:
+                    base = dict(first)["date"]
+                    # base date - buffer days
+                    from datetime import datetime, timedelta
+                    base_dt = datetime.fromisoformat(str(base)[:10])
+                    since = (base_dt - timedelta(days=self.DEPOSIT_SYNC_CUTOFF_BUFFER_DAYS)).strftime("%Y-%m-%d")
+                else:
+                    since = "2000-01-01"
             since_str = str(since)[:10]  # 'YYYY-MM-DD'
 
             history = self._trader.get_deposit_history(currency="KRW", limit=100)

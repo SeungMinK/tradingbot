@@ -147,7 +147,7 @@ def test_sync_no_trader_returns_skip(db):
 
 
 def test_sync_skips_old_deposits_via_cutoff(db):
-    """첫 daily_report.date 이전 입금은 자동 제외 (운영 자본과 무관한 옛날 입금 보호)."""
+    """봇 시작일 -7일 이전 입금은 자동 제외 (운영 자본과 무관한 옛날 입금 보호)."""
     db.execute(
         "INSERT INTO daily_reports (date, starting_balance_krw, ending_balance_krw) "
         "VALUES ('2026-04-04', 95000, 95000)"
@@ -165,7 +165,35 @@ def test_sync_skips_old_deposits_via_cutoff(db):
     assert r["new"] == 1
     assert r["total_added_krw"] == 400000.0
     assert r["skipped_old"] == 1
-    assert r["since"] == "2026-04-04"
+    # #220: cutoff = 첫 daily_report.date - 7일 = 2026-03-28
+    assert r["since"] == "2026-03-28"
+
+
+def test_sync_includes_pre_bot_start_deposits_within_buffer(db):
+    """#220: 봇 시작일 직전(7일 이내) 입금도 자본금으로 포함.
+
+    사용자 케이스: 4/3 입금 100,000원이 4/4 봇 시작일 cutoff에 막혀 누락된 문제.
+    """
+    db.execute(
+        "INSERT INTO daily_reports (date, starting_balance_krw, ending_balance_krw) "
+        "VALUES ('2026-04-04', 95000, 95000)"
+    )
+    db.commit()
+
+    trader = _FakeTrader(
+        [
+            {"uuid": "preA", "amount_krw": 10000.0, "deposited_at": "2026-04-03T22:17:59+09:00"},
+            {"uuid": "preB", "amount_krw": 90000.0, "deposited_at": "2026-04-03T22:51:55+09:00"},
+            {"uuid": "post", "amount_krw": 400000.0, "deposited_at": "2026-04-19T22:06:15+09:00"},
+            {"uuid": "way_old", "amount_krw": 2000000.0, "deposited_at": "2021-12-15T07:11:13+09:00"},
+        ]
+    )
+    checker = HealthChecker(db, trader, notifier=None)
+    r = checker.sync_deposits()
+    # 4/3 두 건 + 4/19 = 3건 등록, 2021은 차단
+    assert r["new"] == 3
+    assert r["total_added_krw"] == 500000.0
+    assert r["skipped_old"] == 1
 
 
 def test_sync_explicit_since_overrides_default(db):
