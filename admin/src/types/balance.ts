@@ -5,6 +5,7 @@ export interface BalanceResponse {
   coin_balance: number;
   coin_value_krw: number;
   total_asset_krw: number;
+  total_deposits_krw: number;  // #218: capital_deposits 누적 합 (대시보드 손익 기준)
   api_connected: boolean;
 }
 

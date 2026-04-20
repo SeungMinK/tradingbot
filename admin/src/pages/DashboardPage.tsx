@@ -85,12 +85,16 @@ export default function DashboardPage() {
         const totalCost = pos.reduce((s: number, p: any) => s + (p.total_krw || 0), 0);
         const totalValue = pos.reduce((s: number, p: any) => s + (p.amount || 0) * (p.current_price || 0), 0);
         const totalAsset = (balance?.krw_balance || 0) + totalValue;
-        const STARTING_BALANCE = 100000;
-        const totalPnl = totalAsset - STARTING_BALANCE;
+        // #218: 시작 금액은 capital_deposits 누적 합산 (백엔드에서 계산). 추가 입금 시 자동 반영.
+        // API에서 못 받아오면(레거시 등) 100,000 fallback — 그래도 손익 부호는 의미 있음.
+        const totalDeposits = balance?.total_deposits_krw && balance.total_deposits_krw > 0
+          ? balance.total_deposits_krw
+          : 100000;
+        const totalPnl = totalAsset - totalDeposits;
         return (
           <div className="kpi-grid">
             <StatCard label="총 보유 자산" value={balance ? formatKRW(totalAsset) : "-"} sub={`KRW ${formatKRW(balance?.krw_balance || 0)} + 코인 ${formatKRW(totalValue)}`} />
-            <StatCard label="총 손익" value={`${formatKRW(totalPnl)} (${formatPercent(totalPnl / STARTING_BALANCE * 100)})`} valueClass={totalPnl >= 0 ? "positive" : "negative"} sub={`시작 ₩${STARTING_BALANCE.toLocaleString()} 기준`} />
+            <StatCard label="총 손익" value={`${formatKRW(totalPnl)} (${formatPercent(totalDeposits > 0 ? totalPnl / totalDeposits * 100 : 0)})`} valueClass={totalPnl >= 0 ? "positive" : "negative"} sub={`누적 입금 ₩${totalDeposits.toLocaleString()} 기준`} />
             <StatCard label="매수 금액" value={formatKRW(totalCost)} sub={`${pos.length}종목 보유`} />
             <StatCard label="평가 금액" value={formatKRW(totalValue)} valueClass={totalValue >= totalCost ? "positive" : "negative"} sub={totalCost > 0 ? `${formatPercent((totalValue - totalCost) / totalCost * 100)} 수익률` : ""} />
           </div>
