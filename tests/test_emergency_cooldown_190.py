@@ -87,20 +87,21 @@ def test_non_force_runs_after_interval(db):
 
 
 # ===================================================================
-# 3. MAX_DAILY_CALLS 하향 (36 → 20)
+# 3. MAX_DAILY_CALLS — #208에서 20 → 30 상향 (캐시 hit으로 비용 영향 미미)
 # ===================================================================
 
 
-def test_max_daily_calls_is_20(db):
+def test_max_daily_calls_is_30(db):
+    """#208: 캐시 hit 보장으로 30회까지 안전."""
     a = LLMAnalyzer(db)
-    assert a.MAX_DAILY_CALLS == 20
+    assert a.MAX_DAILY_CALLS == 30
 
 
 def test_daily_limit_blocks_even_force(db):
     """MAX_DAILY_CALLS 도달 시 force=True도 차단."""
     a = LLMAnalyzer(db)
-    # 오늘 20건 삽입
-    for _ in range(20):
+    # 오늘 한도+0건 삽입
+    for _ in range(a.MAX_DAILY_CALLS):
         db.execute("INSERT INTO llm_decisions (timestamp, model) VALUES (datetime('now', '-5 minutes'), 'test')")
     db.commit()
 
@@ -109,13 +110,13 @@ def test_daily_limit_blocks_even_force(db):
 
 
 def test_under_daily_limit_allows_call(db):
-    """19건이면 force=True 한 번 더 허용."""
+    """한도 직전이면 force=True 한 번 더 허용."""
     a = LLMAnalyzer(db)
-    for _ in range(19):
+    for _ in range(a.MAX_DAILY_CALLS - 1):
         db.execute("INSERT INTO llm_decisions (timestamp, model) VALUES (datetime('now', '-30 minutes'), 'test')")
     db.commit()
 
-    # 20분 쿨다운 통과 + 20회 미만 → True
+    # 20분 쿨다운 통과 + 한도 미만 → True
     assert a._should_run(force=True) is True
 
 

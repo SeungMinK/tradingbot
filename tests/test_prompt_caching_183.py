@@ -143,6 +143,19 @@ def test_prompt_sizes_approximately_as_expected():
     assert 3_000 < len(SYSTEM_PROMPT) < 15_000, f"SYSTEM 크기 범위 밖: {len(SYSTEM_PROMPT)}"
 
 
+def test_system_prompt_meets_haiku_45_cache_minimum():
+    """#208: Haiku 4.5는 4096 토큰 미만이면 silent skip — 캐시 자체가 안 됨.
+
+    실측: 6219 chars = 4441 tokens → 한국어 위주라 1 char ≈ 0.71 tokens.
+    4096 tokens ≈ 5734 chars. 마진 5% 두고 6000 chars 하한.
+    회귀 방지: SYSTEM_PROMPT를 줄였다가 4096 미만 되면 캐시 비활성 → 비용 폭증.
+    """
+    assert len(SYSTEM_PROMPT) >= 6_000, (
+        f"SYSTEM_PROMPT가 너무 짧음 ({len(SYSTEM_PROMPT)} chars). "
+        f"Haiku 4.5 캐싱 최소 4096 토큰(≈ 5734 chars)을 못 채우면 silent skip → 캐시 비활성."
+    )
+
+
 # ===================================================================
 # Tier 1.3: DB 마이그레이션
 # ===================================================================
@@ -239,6 +252,23 @@ def test_call_claude_passes_system_with_cache_control(db, monkeypatch):
     assert SYSTEM_PROMPT in sys_block["text"]
     # user content는 uncached
     assert captured["messages"][0]["content"] == "user data prompt"
+
+
+def test_interval_active_under_one_hour_for_cache_sliding_window():
+    """#208: 1h 캐시 TTL은 sliding window. 60분 정확히면 매번 expired.
+
+    55분 이하여야 cache hit + TTL 자동 연장. INTERVAL_ACTIVE_MIN < 60 회귀 방지.
+    """
+    assert LLMAnalyzer.INTERVAL_ACTIVE_MIN < 60, (
+        "ACTIVE 호출 간격이 60분 이상이면 1h 캐시가 매번 expired — 캐시 hit 0%"
+    )
+
+
+def test_max_daily_calls_supports_24h_active_cycle():
+    """#208: 55분 간격 × 24h ≈ 26회. 여유분 포함 30회 보장."""
+    assert LLMAnalyzer.MAX_DAILY_CALLS >= 26, (
+        f"MAX_DAILY_CALLS={LLMAnalyzer.MAX_DAILY_CALLS} — ACTIVE 55분 간격을 24h 유지하려면 26회+ 필요"
+    )
 
 
 def test_call_claude_uses_max_tokens_constant(db, monkeypatch):

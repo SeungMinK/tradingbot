@@ -22,6 +22,9 @@ class RiskLimits:
     min_balance_krw: float = 5_000  # 최소 유지 잔고 (업비트 최소 주문금액)
     max_consecutive_losses: int = 3  # 연속 손실 시 매매 중단 (최근 1일 윈도우)
     consecutive_loss_window_hours: int = 24  # 연속 손실 판정 윈도우
+    # #208: 매도 직후 같은 코인 재매수 차단. 손절(-5%)과 RSI 과매도 매수 신호가
+    # 같은 가격 사건에 대해 모순적으로 발생하는 패턴(수수료 왕복 0.1% 손실)을 막는다.
+    coin_reentry_cooldown_minutes: int = 10
     min_order_krw: float = 5_000  # 업비트 최소 주문 금액 (원)
     # 계좌 전체 일일 실현 손실 한도 (매수 차단용, 매도는 허용).
     # 코인별 한도(max_daily_loss_pct)와 별도로 "계좌 전체"를 보호.
@@ -77,6 +80,16 @@ class RiskManager:
         consecutive = self._get_consecutive_losses(coin)
         if consecutive >= self.limits.max_consecutive_losses:
             return False, f"연속 {consecutive}회 손실 — 매매 중단"
+
+        # 6. 매도 직후 재매수 쿨다운 — ALGO처럼 손절→1분뒤 재매수 패턴 차단
+        cooldown_min = self.limits.coin_reentry_cooldown_minutes
+        if cooldown_min > 0:
+            mins_since_sell = self._minutes_since_last_sell(coin)
+            if mins_since_sell is not None and mins_since_sell < cooldown_min:
+                return False, (
+                    f"재매수 쿨다운: {coin} 마지막 매도 {mins_since_sell:.0f}분 전 "
+                    f"({cooldown_min}분 후 재진입 가능)"
+                )
 
         return True, "리스크 점검 통과"
 
@@ -182,6 +195,22 @@ class RiskManager:
             (coin,),
         ).fetchone()
         return float(row[0]) if row else 0.0
+
+    def _minutes_since_last_sell(self, coin: str) -> float | None:
+        """해당 코인의 가장 최근 매도 후 경과 분. 매도 기록 없으면 None."""
+        row = self._db.execute(
+            """
+            SELECT (julianday('now') - julianday(timestamp)) * 24 * 60 AS gap_min
+            FROM trades
+            WHERE coin = ? AND side = 'sell'
+            ORDER BY id DESC LIMIT 1
+            """,
+            (coin,),
+        ).fetchone()
+        if not row:
+            return None
+        gap = dict(row)["gap_min"]
+        return float(gap) if gap is not None else None
 
     def _get_consecutive_losses(self, coin: str) -> int:
         """최근 consecutive_loss_window_hours 내 연속 손실 횟수.

@@ -127,6 +127,9 @@ class CryptoBot:
             self._risk.limits.max_daily_account_loss_pct = float(
                 self._config_mgr.get("max_daily_account_loss_pct", "-10.0")
             )
+            self._risk.limits.coin_reentry_cooldown_minutes = int(
+                self._config_mgr.get("coin_reentry_cooldown_minutes", "10")
+            )
 
             new_interval = int(self._config_mgr.get("tick_interval_seconds", "60"))
             if new_interval != self._tick_interval:
