@@ -13,12 +13,36 @@ router = APIRouter(prefix="/api/balance", tags=["balance"])
 
 @router.get("")
 def get_balance(_: UserResponse = Depends(get_current_user)):
-    """현재 잔고 + 보유 포지션."""
+    """현재 잔고 + 보유 포지션 + 누적 입금액."""
     from cryptobot.bot.config import config
     from cryptobot.bot.trader import Trader
 
     trader = Trader()
-    result = {"krw_balance": 0, "coin_balance": 0, "coin_value_krw": 0, "total_asset_krw": 0, "api_connected": False}
+    result = {
+        "krw_balance": 0,
+        "coin_balance": 0,
+        "coin_value_krw": 0,
+        "total_asset_krw": 0,
+        "total_deposits_krw": 0,  # #218: 누적 입금액 (대시보드 손익 계산 기준)
+        "api_connected": False,
+    }
+
+    # #218: capital_deposits 합산 — 추가 입금이 있어도 손익 기준이 정확.
+    # 비어 있으면 첫 daily_reports.starting_balance fallback.
+    try:
+        db = get_db()
+        dep_row = db.execute(
+            "SELECT COALESCE(SUM(amount_krw), 0) AS total FROM capital_deposits WHERE currency = 'KRW'"
+        ).fetchone()
+        total_deposits = dict(dep_row)["total"] if dep_row else 0
+        if total_deposits <= 0:
+            first = db.execute(
+                "SELECT starting_balance_krw FROM daily_reports ORDER BY date ASC LIMIT 1"
+            ).fetchone()
+            total_deposits = dict(first)["starting_balance_krw"] if first else 0
+        result["total_deposits_krw"] = float(total_deposits)
+    except Exception as e:
+        logger.warning("누적 입금액 조회 실패: %s", e)
 
     if trader.is_ready:
         try:
