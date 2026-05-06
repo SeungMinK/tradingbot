@@ -21,6 +21,9 @@ def db():
     tmpdir = tempfile.mkdtemp()
     db = Database(Path(tmpdir) / "test.db")
     db.initialize()
+    # #230: llm_enabled가 기본 false라 _should_run이 즉시 차단 → 테스트는 활성 가정
+    db.execute("UPDATE bot_config SET value='true' WHERE key='llm_enabled'")
+    db.commit()
     yield db
     db.close()
 

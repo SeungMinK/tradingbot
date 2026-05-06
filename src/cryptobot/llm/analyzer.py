@@ -408,6 +408,17 @@ class LLMAnalyzer:
 
     def _should_run(self, force: bool = False) -> bool:
         """분석 실행 여부 판단 (동적 주기)."""
+        # #230: LLM 비활성 토글 — 한 달 운영 데이터로 LLM이 수익률에 도움 안 됨 확인
+        # (활성 15일 -31,676원 vs 비활성 5일 +8,640원). bot_config에서 즉시 토글 가능.
+        try:
+            row = self._db.execute(
+                "SELECT value FROM bot_config WHERE key='llm_enabled'"
+            ).fetchone()
+            if row and dict(row).get("value", "true").lower() == "false":
+                return False
+        except Exception:
+            pass
+
         # 일일 호출 제한
         # KST 일 경계 기준 카운트. DB timestamp는 UTC라 +9 hours로 변환 후 DATE 비교.
         # 프로젝트 규칙: "모든 시간은 KST(Asia/Seoul)". UTC의 DATE('now')로 하면
