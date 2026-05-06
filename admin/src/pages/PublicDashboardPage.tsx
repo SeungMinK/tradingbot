@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, ReferenceLine,
 } from "recharts";
 import { formatPercent, formatDateTime } from "../utils/format";
 import { getMarketStateKR } from "../utils/indicatorDescriptions";
@@ -18,6 +19,9 @@ export default function PublicDashboardPage() {
   const [strategyStats, setStrategyStats] = useState<any[]>([]);
   const [monitoringCoins, setMonitoringCoins] = useState<any[]>([]);
   const [strategies, setStrategies] = useState<any[]>([]);
+  // #233: 계좌 손익률 (KRW 비공개) + 일별 추이
+  const [accountPnl, setAccountPnl] = useState<any>(null);
+  const [pnlHistory, setPnlHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAllTrades, setShowAllTrades] = useState(true);
   const [tradeFilter, setTradeFilter] = useState<string | null>(null);
@@ -40,12 +44,15 @@ export default function PublicDashboardPage() {
       fetch(`${base}/api/public/strategy-stats`).then(r => r.json()).catch(() => []),
       fetch(`${base}/api/public/monitoring-coins`).then(r => r.json()).catch(() => []),
       fetch(`${base}/api/public/strategies`).then(r => r.json()).catch(() => []),
-    ]).then(([s, t, a, n, p, dr, ss, mc, st]) => {
+      fetch(`${base}/api/public/account-pnl`).then(r => r.json()).catch(() => null),
+      fetch(`${base}/api/public/account-pnl-history?days=30`).then(r => r.json()).catch(() => []),
+    ]).then(([s, t, a, n, p, dr, ss, mc, st, ap, aph]) => {
       setSummary(s); setTrades(t); setAnalysis(a);
       setNews(n?.news || []); setFg(n?.fear_greed || null);
       setPortfolio(p?.positions || []);
       setDailyReturns(dr); setStrategyStats(ss);
       setMonitoringCoins(mc); setStrategies(st);
+      setAccountPnl(ap); setPnlHistory(Array.isArray(aph) ? aph : []);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
@@ -102,47 +109,82 @@ export default function PublicDashboardPage() {
   const fgColor = fg && fg.value <= 25 ? "#f87171" : fg && fg.value >= 75 ? "#34d399" : "#fbbf24";
 
 
+  // #233: 계좌 손익 색상 결정
+  const totalPct = accountPnl?.pnl_pct ?? 0;
+  const todayPct = accountPnl?.today_pct ?? 0;
+  const isPos = totalPct >= 0;
+  const accentColor = isPos ? "#34d399" : "#f87171";
+
   return (
-    <div>
-      {/* 히어로 */}
-      <div style={{
-        background: "linear-gradient(135deg, #1e293b 0%, #1e3a5f 50%, #312e81 100%)",
-        borderRadius: 16, padding: "20px 28px", marginBottom: 24,
-        color: "#ffffff",
-        boxShadow: "0 4px 20px rgba(0, 0, 0, 0.1)",
-      }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700 }}>CryptoBot</h1>
+    <div className="public-wrap">
+      {/* #233 Hero: 계좌 손익률 + 광고 영역 */}
+      <div className="public-hero-grid">
+        <div className="pnl-hero">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div>
+              <div className="pnl-hero-title">CRYPTOBOT · 누적 손익률</div>
+              <div className="pnl-hero-value" style={{ color: accentColor }}>
+                {isPos ? "+" : ""}{totalPct.toFixed(2)}%
+              </div>
+              <div className="pnl-hero-sub">
+                오늘 변동 <span style={{ color: todayPct >= 0 ? "#34d399" : "#f87171", fontWeight: 700 }}>
+                  {todayPct >= 0 ? "+" : ""}{todayPct.toFixed(2)}%
+                </span>
+              </div>
+            </div>
+            {fg && (
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 11, opacity: 0.6 }}>공포/탐욕</div>
+                <div style={{ fontSize: 28, fontWeight: 700, color: fgColor }}>{fg.value}</div>
+                <div style={{ fontSize: 11, color: fgColor }}>{fgLabel}</div>
+              </div>
+            )}
+          </div>
+
+          {summary && (
+            <div className="pnl-hero-row">
+              <div className="pnl-hero-stat">
+                전체 승률<strong>{summary.win_rate.toFixed(1)}%</strong>
+              </div>
+              <div className="pnl-hero-stat">
+                평균 수익<strong>{formatPercent(summary.avg_profit_pct)}</strong>
+              </div>
+              <div className="pnl-hero-stat">
+                총 거래<strong>{summary.total_trades}건</strong>
+              </div>
+              <div className="pnl-hero-stat">
+                오늘 거래<strong>{summary.today_trades}건</strong>
+              </div>
+            </div>
+          )}
+
+          {/* 일별 추이 차트 */}
+          {pnlHistory.length > 1 && (
+            <div style={{ marginTop: 20, height: 120 }}>
+              <ResponsiveContainer>
+                <LineChart data={pnlHistory} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+                  <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }} tickFormatter={(v: string) => v.slice(5)} />
+                  <YAxis tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }} unit="%" width={40} />
+                  <ReferenceLine y={0} stroke="rgba(255,255,255,0.2)" strokeDasharray="3 3" />
+                  <Tooltip
+                    contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, fontSize: 12 }}
+                    labelStyle={{ color: "#94a3b8" }}
+                    formatter={(v: any) => [`${v >= 0 ? "+" : ""}${v}%`, "누적 손익"]}
+                  />
+                  <Line type="monotone" dataKey="pnl_pct" stroke={accentColor} strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
 
-        {summary && (
-          <div className="kpi-grid" style={{ marginTop: 24, marginBottom: 0 }}>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginBottom: 4 }}>전체 승률</div>
-              <div style={{ fontSize: 28, fontWeight: 700 }} className={summary.win_rate >= 50 ? "positive" : "negative"}>
-                {summary.win_rate.toFixed(1)}%
-              </div>
-              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>오늘 {summary.today_win_rate.toFixed(0)}%</div>
-            </div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginBottom: 4 }}>평균 수익률</div>
-              <div style={{ fontSize: 28, fontWeight: 700 }} className={summary.avg_profit_pct >= 0 ? "positive" : "negative"}>
-                {formatPercent(summary.avg_profit_pct)}
-              </div>
-              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>오늘 {formatPercent(summary.today_avg_pct)}</div>
-            </div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginBottom: 4 }}>총 거래</div>
-              <div style={{ fontSize: 28, fontWeight: 700 }}>{summary.total_trades}</div>
-              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>오늘 {summary.today_trades}건</div>
-            </div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginBottom: 4 }}>공포/탐욕</div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: fgColor }}>{fg ? fg.value : "-"}</div>
-              <div style={{ fontSize: 11, color: fgColor }}>{fgLabel}</div>
-            </div>
-          </div>
-        )}
+        {/* 광고 영역 (placeholder) */}
+        <div className="ad-slot">
+          <div className="ad-slot-label">SPONSORED</div>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>광고 영역</div>
+          <div style={{ fontSize: 11, marginTop: 6, opacity: 0.7 }}>300×250 또는 320×100</div>
+        </div>
       </div>
 
       {/* 뉴스 티커 */}
@@ -580,6 +622,12 @@ export default function PublicDashboardPage() {
         <div style={{ marginTop: 8 }}>
           Powered by Claude AI + {strategies.length} Trading Strategies
         </div>
+      </div>
+
+      {/* #233: 푸터 광고 슬롯 (728×90 또는 모바일 320×100) */}
+      <div className="ad-slot" style={{ marginTop: 24, minHeight: 100 }}>
+        <div className="ad-slot-label">SPONSORED</div>
+        <div style={{ fontSize: 14, fontWeight: 600 }}>광고 영역 (728×90 / 모바일 320×100)</div>
       </div>
     </div>
   );
