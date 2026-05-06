@@ -931,6 +931,33 @@ class Database:
                 )
                 logger.info("bb_rsi_combined 전략 추가")
 
+            # #226: long_term_swing 전략 추가 (기존 DB)
+            lts = conn.execute("SELECT 1 FROM strategies WHERE name = 'long_term_swing'").fetchone()
+            if lts is None:
+                conn.execute(
+                    """INSERT INTO strategies (
+                        name, display_name, description, category, market_states,
+                        timeframe, difficulty, default_params_json, is_active, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        "long_term_swing",
+                        "장기 스윙",
+                        "공포탐욕지수+50일MA+RSI 결합. 저점 매수, 고점 매도. 평균 보유 10~16일.",
+                        "swing",
+                        "bearish,sideways",
+                        "1d",
+                        "medium",
+                        (
+                            '{"ma_long": 50, "ma_short": 20, "rsi_period": 14, "rsi_entry_max": 45,'
+                            ' "fear_threshold": 30, "greed_threshold": 70, "take_profit_pct": 20.0,'
+                            ' "min_hold_days": 7}'
+                        ),
+                        False,  # 기본 비활성
+                        "inactive",
+                    ),
+                )
+                logger.info("long_term_swing 전략 추가 (#226, 기본 비활성)")
+
             # 봇 설정 기본값 삽입
             row = conn.execute("SELECT COUNT(*) FROM bot_config").fetchone()
             if row[0] == 0:
