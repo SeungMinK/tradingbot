@@ -260,11 +260,46 @@ def get_public_daily_returns(request: Request, days: int = Query(30, ge=1, le=90
 
 @router.get("/monitoring-coins")
 def get_public_monitoring_coins(request: Request):
-    """현재 모니터링 중인 코인 + RSI/시장 상태."""
+    """현재 모니터링 중인 코인 + RSI/시장 상태.
+
+    #228: 화이트리스트 모드면 화이트리스트만 반환. 아니면 최근 snapshot 기반.
+    """
     if not _check_rate_limit(request):
         return JSONResponse(status_code=429, content={"detail": "Too many requests"})
 
     db = get_db()
+
+    # 화이트리스트 모드 체크
+    wl_enabled = db.execute(
+        "SELECT value FROM bot_config WHERE key='coin_whitelist_enabled'"
+    ).fetchone()
+    if wl_enabled and dict(wl_enabled).get("value", "false").lower() == "true":
+        wl_row = db.execute(
+            "SELECT value FROM bot_config WHERE key='coin_whitelist'"
+        ).fetchone()
+        if wl_row and dict(wl_row).get("value"):
+            whitelist = [c.strip() for c in dict(wl_row)["value"].split(",") if c.strip()]
+            placeholders = ",".join("?" for _ in whitelist)
+            rows = db.execute(
+                f"""
+                SELECT coin, price, rsi_14, market_state
+                FROM market_snapshots
+                WHERE id IN (SELECT MAX(id) FROM market_snapshots WHERE coin IN ({placeholders}) GROUP BY coin)
+                ORDER BY coin
+                """,
+                whitelist,
+            ).fetchall()
+            return [
+                {
+                    "coin": dict(r)["coin"],
+                    "price": dict(r)["price"],
+                    "rsi": round(dict(r)["rsi_14"], 0) if dict(r)["rsi_14"] else None,
+                    "market_state": dict(r)["market_state"],
+                }
+                for r in rows
+            ]
+
+    # 화이트리스트 OFF — 기존 동작 (최근 10분)
     rows = db.execute(
         """
         SELECT coin, price, rsi_14, market_state
