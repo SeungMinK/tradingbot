@@ -368,16 +368,22 @@ def get_public_account_pnl(request: Request):
 
     pnl_pct = ((total_asset - total_deposits) / total_deposits * 100) if total_deposits > 0 else 0
 
-    # 오늘 변동: 어제 daily_reports.ending_balance 대비
+    # 오늘 변동: 어제 daily_reports.ending_balance 대비.
+    # #236: 오늘 입금이 있으면 자산이 입금만큼 늘어나 false 양수. 분자에서 오늘 입금 제거.
     today_pct = 0.0
     yesterday = db.execute(
         "SELECT ending_balance_krw FROM daily_reports WHERE date < DATE('now') "
         "ORDER BY date DESC LIMIT 1"
     ).fetchone()
+    today_deposits_row = db.execute(
+        "SELECT COALESCE(SUM(amount_krw), 0) AS s FROM capital_deposits "
+        "WHERE currency='KRW' AND DATE(deposited_at) = DATE('now')"
+    ).fetchone()
+    today_deposits = float(dict(today_deposits_row)["s"]) if today_deposits_row else 0
     if yesterday and total_asset > 0:
         y_bal = float(dict(yesterday).get("ending_balance_krw") or 0)
         if y_bal > 0:
-            today_pct = (total_asset - y_bal) / y_bal * 100
+            today_pct = (total_asset - today_deposits - y_bal) / y_bal * 100
 
     return {
         "pnl_pct": round(pnl_pct, 2),
@@ -404,14 +410,18 @@ def get_account_pnl_history(request: Request, days: int = Query(30, ge=1, le=365
         """
     ).fetchall()
 
-    # 누적 입금 N일치 (각 날짜까지 합산)
+    # 누적 입금 N일치 (각 날짜까지 합산).
+    # #236: 입금 당일은 분모에서 제외 — daily_report.ending_balance가 입금 시각 *전* 잔고로
+    # 기록되는 케이스가 있어(4/19 22:06 입금이 4/19 ending_balance 98,893에 반영 안됨)
+    # mismatch로 -80% 같은 환각 발생. 입금은 다음 날부터 분모에 포함시켜 자연스럽게 잇기.
     deps = db.execute(
         "SELECT DATE(deposited_at) AS d, amount_krw FROM capital_deposits WHERE currency='KRW' ORDER BY deposited_at"
     ).fetchall()
     deps_list = [(dict(d)["d"], float(dict(d)["amount_krw"])) for d in deps]
 
     def cum_deposits_at(date_str: str) -> float:
-        return sum(amt for d, amt in deps_list if d <= date_str)
+        # < 부등호: 그 날 *이전*까지의 누적. 입금 당일은 다음 날부터 반영.
+        return sum(amt for d, amt in deps_list if d < date_str)
 
     history = []
     for r in rows:
