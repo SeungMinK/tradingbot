@@ -84,7 +84,8 @@ def test_unauthorized(client):
 def test_get_strategies(client, auth_header):
     response = client.get("/api/strategies", headers=auth_header)
     assert response.status_code == 200
-    assert len(response.json()) == 10
+    # #226: long_term_swing 추가로 11개
+    assert len(response.json()) == 11
 
 
 def test_get_active_strategies(client, auth_header):

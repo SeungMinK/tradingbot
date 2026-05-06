@@ -9,6 +9,7 @@ from cryptobot.strategies.bollinger_bands import BollingerBands
 from cryptobot.strategies.bollinger_squeeze import BollingerSqueeze
 from cryptobot.strategies.breakout_momentum import BreakoutMomentum
 from cryptobot.strategies.grid_trading import GridTrading
+from cryptobot.strategies.long_term_swing import LongTermSwing
 from cryptobot.strategies.ma_crossover import MACrossover
 from cryptobot.strategies.macd_strategy import MACDStrategy
 from cryptobot.strategies.registry import StrategyRegistry
@@ -29,6 +30,7 @@ STRATEGY_CLASSES: dict[str, type[BaseStrategy]] = {
     "grid_trading": GridTrading,
     "breakout_momentum": BreakoutMomentum,
     "bb_rsi_combined": BBRSICombined,
+    "long_term_swing": LongTermSwing,  # #226
 }
 
 

@@ -15,14 +15,15 @@ def _make_repo():
 
 
 def test_get_all_strategies():
-    """초기화 시 9개 전략이 삽입되는지."""
+    """초기화 시 11개 전략이 삽입되는지 (#226 long_term_swing 추가)."""
     repo, db = _make_repo()
     try:
         strategies = repo.get_all()
-        assert len(strategies) == 10
+        assert len(strategies) == 11
         names = [s["name"] for s in strategies]
         assert "volatility_breakout" in names
         assert "rsi_mean_reversion" in names
+        assert "long_term_swing" in names
     finally:
         db.close()
 
