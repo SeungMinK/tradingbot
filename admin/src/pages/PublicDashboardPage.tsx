@@ -179,11 +179,34 @@ export default function PublicDashboardPage() {
           )}
         </div>
 
-        {/* 광고 영역 (placeholder) */}
-        <div className="ad-slot">
-          <div className="ad-slot-label">SPONSORED</div>
-          <div style={{ fontSize: 14, fontWeight: 600 }}>광고 영역</div>
-          <div style={{ fontSize: 11, marginTop: 6, opacity: 0.7 }}>300×250 또는 320×100</div>
+        {/* 사이드 정보 카드 — 봇 운영 현황 (추후 광고로 교체 가능) */}
+        <div className="side-info-card">
+          <div className="side-info-title">봇 현황</div>
+          <div className="side-info-row">
+            <span>모니터링</span>
+            <strong>{monitoringCoins.length}개 코인</strong>
+          </div>
+          <div className="side-info-row">
+            <span>활성 전략</span>
+            <strong>{strategies.find((s: any) => s.is_active)?.display_name || "-"}</strong>
+          </div>
+          <div className="side-info-row">
+            <span>오늘 매매</span>
+            <strong>{summary?.today_trades ?? 0}건</strong>
+          </div>
+          <div className="side-info-row">
+            <span>보유 포지션</span>
+            <strong>{portfolio.length}개</strong>
+          </div>
+          {fg && (
+            <div className="side-info-row">
+              <span>시장 심리</span>
+              <strong style={{ color: fgColor }}>{fgLabel}</strong>
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 16, lineHeight: 1.5 }}>
+            업비트 API + Claude AI 기반 자동 매매. 60초마다 갱신.
+          </div>
         </div>
       </div>
 
@@ -624,10 +647,14 @@ export default function PublicDashboardPage() {
         </div>
       </div>
 
-      {/* #233: 푸터 광고 슬롯 (728×90 또는 모바일 320×100) */}
-      <div className="ad-slot" style={{ marginTop: 24, minHeight: 100 }}>
-        <div className="ad-slot-label">SPONSORED</div>
-        <div style={{ fontSize: 14, fontWeight: 600 }}>광고 영역 (728×90 / 모바일 320×100)</div>
+      {/* 푸터 disclaimer — 추후 광고 영역으로 교체 가능 */}
+      <div style={{
+        marginTop: 24, padding: "16px 20px", borderRadius: 12,
+        background: "#f8fafc", border: "1px solid var(--border)",
+        textAlign: "center", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6,
+      }}>
+        본 사이트는 자동매매 봇의 운영 결과를 공개하는 데모입니다.
+        투자 권유나 수익 보장이 아니며, 실제 투자는 본인 책임입니다.
       </div>
     </div>
   );
