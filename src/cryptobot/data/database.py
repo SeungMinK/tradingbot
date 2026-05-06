@@ -456,7 +456,7 @@ _DEFAULT_STRATEGIES = [
         "timeframe": "1d",
         "difficulty": "medium",
         "default_params_json": (
-            '{"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 30, "rsi_overbought": 50}'
+            '{"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 30, "rsi_overbought": 70}'
         ),
         "is_active": True,  # #197: 신규 DB 기본 전략 (운영 의도 반영)
     },
@@ -688,6 +688,16 @@ _DEFAULT_BOT_CONFIG = [
         "display_name": "매매 허용",
         "description": "false로 설정하면 봇이 신호만 기록하고 실제 매매는 하지 않음",
     },
+    # #230: LLM 비활성 토글. 한 달 데이터(활성 -31,676 vs 비활성 +8,640)로 LLM이 수익률에
+    # 도움 안 됨 확인. 기본 false. 다시 켜려면 true + Anthropic API 결제.
+    {
+        "key": "llm_enabled",
+        "value": "false",
+        "value_type": "bool",
+        "category": "llm",
+        "display_name": "LLM 분석 활성",
+        "description": "false면 _should_run에서 즉시 차단. 호출 0건. Anthropic 비용 0.",
+    },
 ]
 
 
@@ -873,6 +883,18 @@ class Database:
                         )
                 logger.info("bot_config에 멀티코인 설정 추가")
 
+            # #230: llm_enabled 토글 마이그레이션 (기존 DB)
+            llm_e = conn.execute("SELECT key FROM bot_config WHERE key = 'llm_enabled'").fetchone()
+            if llm_e is None:
+                conn.execute(
+                    "INSERT OR IGNORE INTO bot_config "
+                    "(key, value, value_type, category, display_name, description) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    ("llm_enabled", "false", "bool", "llm", "LLM 분석 활성",
+                     "#230: false면 _should_run에서 즉시 차단. 호출 0건."),
+                )
+                logger.info("#230: llm_enabled=false 토글 추가")
+
             # #228: 화이트리스트 설정 마이그레이션 (기존 DB)
             wl_exists = conn.execute(
                 "SELECT key FROM bot_config WHERE key = 'coin_whitelist_enabled'"
@@ -961,7 +983,7 @@ class Database:
                         "sideways,bearish",
                         "1d",
                         "medium",
-                        '{"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 30, "rsi_overbought": 50}',
+                        '{"bb_period": 20, "bb_std": 2.0, "rsi_period": 14, "rsi_oversold": 30, "rsi_overbought": 70}',
                         False,
                         "inactive",
                     ),
