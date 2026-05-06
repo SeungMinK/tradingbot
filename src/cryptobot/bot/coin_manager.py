@@ -12,7 +12,19 @@ logger = logging.getLogger(__name__)
 class CoinManager:
     """멀티코인 선별 + DataCollector 관리."""
 
-    CORE_COINS = ["KRW-BTC", "KRW-ETH", "KRW-XRP"]
+    # #228: SOL 추가 (글로벌 시총 5위, "이더리움 킬러", 업비트 거래량 상위)
+    CORE_COINS = ["KRW-BTC", "KRW-ETH", "KRW-XRP", "KRW-SOL"]
+
+    # #228: 메이저 화이트리스트 — 잡쓰레기 알트(NEWT 등) 자동 제외용 보호 리스트.
+    # 한 달 운영(33일) 통계: 알트 NEWT 한 종목으로 -31,056원 (한 달 손해의 1.5배).
+    # bb_rsi 백테스트는 메이저(BTC/ETH/XRP)에선 +7.45% 성과.
+    # 진짜 적자 원인은 알트 마구잡이 매매로 판명 → 화이트리스트로 직접 차단.
+    # 티어 1 (필수): BTC, ETH, XRP, SOL (글로벌 시총 상위 4, 스테이블 제외)
+    # 티어 2 (선택): ADA, DOGE, AVAX, LINK (시총 5~15위, 업비트 거래량 큼)
+    DEFAULT_WHITELIST = [
+        "KRW-BTC", "KRW-ETH", "KRW-XRP", "KRW-SOL",  # 티어 1
+        "KRW-ADA", "KRW-DOGE", "KRW-AVAX", "KRW-LINK",  # 티어 2
+    ]
 
     def __init__(self, db, config_manager) -> None:
         self._db = db
@@ -21,6 +33,14 @@ class CoinManager:
         self.collectors: dict[str, DataCollector] = {}
         self._last_refresh: str = ""
         self._init_collectors()
+
+    def _get_whitelist(self) -> list[str] | None:
+        """#228: 활성 화이트리스트 반환. None이면 화이트리스트 미사용 (기존 동작)."""
+        if not self._config.get_bool("coin_whitelist_enabled", True):
+            return None
+        raw = self._config.get("coin_whitelist", ",".join(self.DEFAULT_WHITELIST))
+        coins = [c.strip() for c in raw.split(",") if c.strip()]
+        return coins if coins else None
 
     def _init_collectors(self) -> None:
         """활성 코인별 DataCollector 초기화 + 불필요한 collector 정리."""
@@ -40,6 +60,18 @@ class CoinManager:
             elapsed = now_ts - float(self._last_refresh)
             if elapsed < interval * 60:
                 return
+
+        # #228: 화이트리스트 모드 — scanner 우회, 화이트리스트만 매매
+        whitelist = self._get_whitelist()
+        if whitelist is not None:
+            held = self._get_held_coins()
+            new_coins = list(whitelist) + [c for c in held if c not in whitelist]
+            if set(new_coins) != set(self.active_coins):
+                logger.info("화이트리스트 코인 적용: %s → %s", self.active_coins, new_coins)
+                self.active_coins = new_coins
+                self._init_collectors()
+            self._last_refresh = str(now_ts)
+            return
 
         if not self._config.get_bool("multi_coin_enabled", True):
             self.active_coins = list(self.CORE_COINS)
