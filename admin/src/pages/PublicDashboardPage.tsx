@@ -117,13 +117,37 @@ export default function PublicDashboardPage() {
 
   const activeStrategy = strategies.find((s: any) => s.is_active)?.display_name || "-";
 
+  // #239: 운영 기간 계산 (첫 daily_returns 또는 매매)
+  const startDate = dailyReturns.length > 0 ? dailyReturns[dailyReturns.length - 1]?.date : null;
+  const operatingDays = startDate ? Math.floor((Date.now() - new Date(startDate).getTime()) / 86400000) : 0;
+
+  // 최대 일일 손실폭(MDD) 계산 (pnlHistory에서)
+  const mddPct = pnlHistory.length > 0
+    ? Math.min(...pnlHistory.map((p: any) => p.pnl_pct ?? 0))
+    : 0;
+
   return (
     <div className="public-wrap">
+      {/* #239: 상단 헤더 — 로고 + 봇 이름 + 운영 상태 배지 */}
+      <div className="public-header">
+        <div className="public-header-brand">
+          <div className="public-header-logo">C</div>
+          <div>
+            <div className="public-header-name">CryptoBot</div>
+            <div className="public-header-tag">업비트 자동매매 · {operatingDays}일째 운영</div>
+          </div>
+        </div>
+        <div className="status-badge">
+          <span className="status-badge-dot" />
+          LIVE
+        </div>
+      </div>
+
       {/* #237 Hero: 누적 손익률 + 큰 차트 (전체 폭) */}
       <div className="pnl-hero">
         <div className="pnl-hero-top">
           <div>
-            <div className="pnl-hero-title">CRYPTOBOT · 누적 손익률</div>
+            <div className="pnl-hero-title">누적 손익률</div>
             <div className="pnl-hero-value" style={{ color: accentColor }}>
               {isPos ? "+" : ""}{totalPct.toFixed(2)}%
             </div>
@@ -143,9 +167,17 @@ export default function PublicDashboardPage() {
               <strong>{monitoringCoins.length}개 코인</strong>
             </div>
             {fg && (
-              <div className="pnl-hero-meta-item">
-                <span>공포/탐욕</span>
-                <strong style={{ color: fgColor }}>{fg.value} · {fgLabel}</strong>
+              <div className="pnl-hero-meta-item" style={{ minWidth: 140 }}>
+                <span>공포/탐욕 · {fgLabel}</span>
+                <strong style={{ color: fgColor, fontSize: 18 }}>{fg.value}<span style={{ fontSize: 11, opacity: 0.6 }}>/100</span></strong>
+                <div className="fg-gauge">
+                  <div className="fg-gauge-track">
+                    <div className="fg-gauge-marker" style={{ left: `${fg.value}%` }} />
+                  </div>
+                  <div className="fg-gauge-labels">
+                    <span>공포</span><span>탐욕</span>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -172,9 +204,9 @@ export default function PublicDashboardPage() {
         )}
       </div>
 
-      {/* #237 KPI 그리드 — Hero 아래 */}
+      {/* #237/#239 KPI 그리드 — Hero 아래 (6개로 확장) */}
       {summary && (
-        <div className="kpi-grid-public">
+        <div className="kpi-grid-public" style={{ gridTemplateColumns: "repeat(6, 1fr)" }}>
           <div className="kpi-card-public">
             <div className="kpi-label-public">전체 승률</div>
             <div className="kpi-value-public" style={{ color: summary.win_rate >= 50 ? "#10b981" : "#ef4444" }}>
@@ -195,9 +227,21 @@ export default function PublicDashboardPage() {
             <div className="kpi-sub-public">총 {summary.total_trades}건</div>
           </div>
           <div className="kpi-card-public">
+            <div className="kpi-label-public">최대 손실폭</div>
+            <div className="kpi-value-public" style={{ color: "#ef4444" }}>
+              {mddPct.toFixed(2)}%
+            </div>
+            <div className="kpi-sub-public">기간 중 최저점</div>
+          </div>
+          <div className="kpi-card-public">
+            <div className="kpi-label-public">운영 기간</div>
+            <div className="kpi-value-public">{operatingDays}일</div>
+            <div className="kpi-sub-public">{startDate?.slice(5) ?? "-"}부터</div>
+          </div>
+          <div className="kpi-card-public">
             <div className="kpi-label-public">보유 포지션</div>
             <div className="kpi-value-public">{portfolio.length}개</div>
-            <div className="kpi-sub-public">8개 메이저 모니터링 중</div>
+            <div className="kpi-sub-public">{monitoringCoins.length}개 메이저 모니터링</div>
           </div>
         </div>
       )}

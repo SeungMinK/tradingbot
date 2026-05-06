@@ -168,6 +168,147 @@ a:hover { text-decoration: underline; }
   padding: 20px 24px;
 }
 
+/* #239: 상단 헤더 — 로고/봇이름/운영상태 */
+.public-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 4px 20px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.public-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.public-header-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: -0.5px;
+}
+.public-header-name {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+}
+.public-header-tag {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #166534;
+}
+.status-badge-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.85); }
+}
+
+/* #239: 섹션 제목 통일 */
+.section-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 32px 0 12px;
+  padding: 0 4px;
+}
+.section-title-row h2 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  color: var(--text-primary);
+  margin: 0;
+}
+.section-title-row .section-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* #239: F&G 게이지 — Hero 메타 안에 */
+.fg-gauge {
+  width: 120px;
+  margin-top: 4px;
+}
+.fg-gauge-track {
+  height: 6px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #ef4444 0%, #f59e0b 25%, #eab308 50%, #84cc16 75%, #22c55e 100%);
+  position: relative;
+  overflow: hidden;
+}
+.fg-gauge-marker {
+  position: absolute;
+  top: -3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #1e293b;
+  transform: translateX(-50%);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+.fg-gauge-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  margin-top: 4px;
+  opacity: 0.5;
+}
+
+/* #239: 모바일 매매 카드 (테이블 대신) */
+.trade-card {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.trade-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.trade-card-row:last-child { margin-bottom: 0; }
+.trade-card-coin { font-weight: 700; }
+.trade-card-meta { font-size: 11px; color: var(--text-muted); }
+
+/* #239: 빈 상태 카드 */
+.empty-state {
+  text-align: center;
+  padding: 32px 20px;
+  color: var(--text-muted);
+}
+.empty-state-icon { font-size: 32px; opacity: 0.4; margin-bottom: 8px; }
+.empty-state-text { font-size: 13px; }
+
 /* #237: Hero — 전체 폭, 큰 손익률 + 큰 차트 */
 .pnl-hero {
   background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #312e81 100%);
@@ -237,8 +378,26 @@ a:hover { text-decoration: underline; }
 .kpi-sub-public { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
 
 @media (max-width: 1100px) {
-  .kpi-grid-public { grid-template-columns: repeat(2, 1fr); }
+  .kpi-grid-public { grid-template-columns: repeat(3, 1fr) !important; }
   .pnl-hero-meta { gap: 18px; }
+}
+@media (max-width: 700px) {
+  .kpi-grid-public { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* #239: 모바일에서 매매 테이블 부가 컬럼 숨김 (단가/전략/보유시간) — 핵심 4개만 */
+  .public-wrap .card table th:nth-child(4),
+  .public-wrap .card table td:nth-child(4),
+  .public-wrap .card table th:nth-child(5),
+  .public-wrap .card table td:nth-child(5),
+  .public-wrap .card table th:nth-child(7),
+  .public-wrap .card table td:nth-child(7) {
+    display: none;
+  }
+  .public-wrap .card table th,
+  .public-wrap .card table td {
+    font-size: 11px !important;
+    padding: 6px 4px !important;
+  }
 }
 @media (max-width: 768px) {
   .public-wrap { padding: 12px; }
