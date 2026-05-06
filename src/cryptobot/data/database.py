@@ -621,6 +621,25 @@ _DEFAULT_BOT_CONFIG = [
         "display_name": "코인 목록 갱신 주기 (분)",
         "description": "자동 선별 코인 목록을 갱신하는 주기.",
     },
+    # #228: 메이저 화이트리스트 — 알트(NEWT 등) 마구잡이 매매로 인한 큰 손실 차단.
+    # 실측 데이터: NEWT 한 종목만 -31,056원 (한 달 손해의 1.5배).
+    # 기본 ON. 끄면 기존 scanner + LLM add 동작.
+    {
+        "key": "coin_whitelist_enabled",
+        "value": "true",
+        "value_type": "bool",
+        "category": "coin",
+        "display_name": "코인 화이트리스트 모드",
+        "description": "ON: 화이트리스트 코인만 매매. OFF: scanner + LLM 자동 선별 (기존).",
+    },
+    {
+        "key": "coin_whitelist",
+        "value": "KRW-BTC,KRW-ETH,KRW-XRP,KRW-SOL,KRW-ADA,KRW-DOGE,KRW-AVAX,KRW-LINK",
+        "value_type": "string",
+        "category": "coin",
+        "display_name": "화이트리스트 코인 (CSV)",
+        "description": "화이트리스트 모드에서 매매 허용 코인. T1: BTC/ETH/XRP/SOL, T2: ADA/DOGE/AVAX/LINK. 백테스트 +10.94%.",
+    },
     {
         "key": "min_volume_krw",
         "value": "1000000000",
@@ -853,6 +872,24 @@ class Database:
                             ),
                         )
                 logger.info("bot_config에 멀티코인 설정 추가")
+
+            # #228: 화이트리스트 설정 마이그레이션 (기존 DB)
+            wl_exists = conn.execute(
+                "SELECT key FROM bot_config WHERE key = 'coin_whitelist_enabled'"
+            ).fetchone()
+            if wl_exists is None:
+                for cfg in _DEFAULT_BOT_CONFIG:
+                    if cfg["key"] in ("coin_whitelist_enabled", "coin_whitelist"):
+                        conn.execute(
+                            "INSERT OR IGNORE INTO bot_config "
+                            "(key, value, value_type, category, display_name, description) "
+                            "VALUES (?, ?, ?, ?, ?, ?)",
+                            (
+                                cfg["key"], cfg["value"], cfg["value_type"],
+                                cfg["category"], cfg["display_name"], cfg["description"],
+                            ),
+                        )
+                logger.info("#228: 메이저 코인 화이트리스트 설정 추가")
 
             # 코인 카테고리별 전략 기본값
             row = conn.execute("SELECT COUNT(*) FROM coin_strategy_config").fetchone()
