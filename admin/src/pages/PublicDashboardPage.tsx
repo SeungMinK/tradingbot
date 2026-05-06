@@ -115,100 +115,92 @@ export default function PublicDashboardPage() {
   const isPos = totalPct >= 0;
   const accentColor = isPos ? "#34d399" : "#f87171";
 
+  const activeStrategy = strategies.find((s: any) => s.is_active)?.display_name || "-";
+
   return (
     <div className="public-wrap">
-      {/* #233 Hero: 계좌 손익률 + 광고 영역 */}
-      <div className="public-hero-grid">
-        <div className="pnl-hero">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-            <div>
-              <div className="pnl-hero-title">CRYPTOBOT · 누적 손익률</div>
-              <div className="pnl-hero-value" style={{ color: accentColor }}>
-                {isPos ? "+" : ""}{totalPct.toFixed(2)}%
-              </div>
-              <div className="pnl-hero-sub">
-                오늘 변동 <span style={{ color: todayPct >= 0 ? "#34d399" : "#f87171", fontWeight: 700 }}>
-                  {todayPct >= 0 ? "+" : ""}{todayPct.toFixed(2)}%
-                </span>
-              </div>
+      {/* #237 Hero: 누적 손익률 + 큰 차트 (전체 폭) */}
+      <div className="pnl-hero">
+        <div className="pnl-hero-top">
+          <div>
+            <div className="pnl-hero-title">CRYPTOBOT · 누적 손익률</div>
+            <div className="pnl-hero-value" style={{ color: accentColor }}>
+              {isPos ? "+" : ""}{totalPct.toFixed(2)}%
+            </div>
+            <div className="pnl-hero-sub">
+              오늘 변동 <span style={{ color: todayPct >= 0 ? "#34d399" : "#f87171", fontWeight: 700 }}>
+                {todayPct >= 0 ? "+" : ""}{todayPct.toFixed(2)}%
+              </span>
+            </div>
+          </div>
+          <div className="pnl-hero-meta">
+            <div className="pnl-hero-meta-item">
+              <span>활성 전략</span>
+              <strong>{activeStrategy}</strong>
+            </div>
+            <div className="pnl-hero-meta-item">
+              <span>모니터링</span>
+              <strong>{monitoringCoins.length}개 코인</strong>
             </div>
             {fg && (
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 11, opacity: 0.6 }}>공포/탐욕</div>
-                <div style={{ fontSize: 28, fontWeight: 700, color: fgColor }}>{fg.value}</div>
-                <div style={{ fontSize: 11, color: fgColor }}>{fgLabel}</div>
+              <div className="pnl-hero-meta-item">
+                <span>공포/탐욕</span>
+                <strong style={{ color: fgColor }}>{fg.value} · {fgLabel}</strong>
               </div>
             )}
           </div>
-
-          {summary && (
-            <div className="pnl-hero-row">
-              <div className="pnl-hero-stat">
-                전체 승률<strong>{summary.win_rate.toFixed(1)}%</strong>
-              </div>
-              <div className="pnl-hero-stat">
-                평균 수익<strong>{formatPercent(summary.avg_profit_pct)}</strong>
-              </div>
-              <div className="pnl-hero-stat">
-                총 거래<strong>{summary.total_trades}건</strong>
-              </div>
-              <div className="pnl-hero-stat">
-                오늘 거래<strong>{summary.today_trades}건</strong>
-              </div>
-            </div>
-          )}
-
-          {/* 일별 추이 차트 */}
-          {pnlHistory.length > 1 && (
-            <div style={{ marginTop: 20, height: 120 }}>
-              <ResponsiveContainer>
-                <LineChart data={pnlHistory} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-                  <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }} tickFormatter={(v: string) => v.slice(5)} />
-                  <YAxis tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }} unit="%" width={40} />
-                  <ReferenceLine y={0} stroke="rgba(255,255,255,0.2)" strokeDasharray="3 3" />
-                  <Tooltip
-                    contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, fontSize: 12 }}
-                    labelStyle={{ color: "#94a3b8" }}
-                    formatter={(v: any) => [`${v >= 0 ? "+" : ""}${v}%`, "누적 손익"]}
-                  />
-                  <Line type="monotone" dataKey="pnl_pct" stroke={accentColor} strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          )}
         </div>
 
-        {/* 사이드 정보 카드 — 봇 운영 현황 (추후 광고로 교체 가능) */}
-        <div className="side-info-card">
-          <div className="side-info-title">봇 현황</div>
-          <div className="side-info-row">
-            <span>모니터링</span>
-            <strong>{monitoringCoins.length}개 코인</strong>
+        {/* 일별 추이 차트 — 더 크고 시원하게 */}
+        {pnlHistory.length > 1 && (
+          <div style={{ marginTop: 24, height: 200 }}>
+            <ResponsiveContainer>
+              <LineChart data={pnlHistory} margin={{ top: 5, right: 8, left: -16, bottom: 0 }}>
+                <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
+                <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 11 }} tickFormatter={(v: string) => v.slice(5)} />
+                <YAxis tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 11 }} unit="%" width={48} />
+                <ReferenceLine y={0} stroke="rgba(255,255,255,0.18)" strokeDasharray="3 3" />
+                <Tooltip
+                  contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, fontSize: 12 }}
+                  labelStyle={{ color: "#94a3b8" }}
+                  formatter={(v: any) => [`${v >= 0 ? "+" : ""}${v}%`, "누적 손익"]}
+                />
+                <Line type="monotone" dataKey="pnl_pct" stroke={accentColor} strokeWidth={2.5} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
-          <div className="side-info-row">
-            <span>활성 전략</span>
-            <strong>{strategies.find((s: any) => s.is_active)?.display_name || "-"}</strong>
-          </div>
-          <div className="side-info-row">
-            <span>오늘 매매</span>
-            <strong>{summary?.today_trades ?? 0}건</strong>
-          </div>
-          <div className="side-info-row">
-            <span>보유 포지션</span>
-            <strong>{portfolio.length}개</strong>
-          </div>
-          {fg && (
-            <div className="side-info-row">
-              <span>시장 심리</span>
-              <strong style={{ color: fgColor }}>{fgLabel}</strong>
-            </div>
-          )}
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 16, lineHeight: 1.5 }}>
-            업비트 API + Claude AI 기반 자동 매매. 60초마다 갱신.
-          </div>
-        </div>
+        )}
       </div>
+
+      {/* #237 KPI 그리드 — Hero 아래 */}
+      {summary && (
+        <div className="kpi-grid-public">
+          <div className="kpi-card-public">
+            <div className="kpi-label-public">전체 승률</div>
+            <div className="kpi-value-public" style={{ color: summary.win_rate >= 50 ? "#10b981" : "#ef4444" }}>
+              {summary.win_rate.toFixed(1)}%
+            </div>
+            <div className="kpi-sub-public">오늘 {summary.today_win_rate.toFixed(0)}%</div>
+          </div>
+          <div className="kpi-card-public">
+            <div className="kpi-label-public">평균 수익</div>
+            <div className="kpi-value-public" style={{ color: summary.avg_profit_pct >= 0 ? "#10b981" : "#ef4444" }}>
+              {formatPercent(summary.avg_profit_pct)}
+            </div>
+            <div className="kpi-sub-public">오늘 {formatPercent(summary.today_avg_pct)}</div>
+          </div>
+          <div className="kpi-card-public">
+            <div className="kpi-label-public">오늘 매매</div>
+            <div className="kpi-value-public">{summary.today_trades}건</div>
+            <div className="kpi-sub-public">총 {summary.total_trades}건</div>
+          </div>
+          <div className="kpi-card-public">
+            <div className="kpi-label-public">보유 포지션</div>
+            <div className="kpi-value-public">{portfolio.length}개</div>
+            <div className="kpi-sub-public">8개 메이저 모니터링 중</div>
+          </div>
+        </div>
+      )}
 
       {/* 뉴스 티커 */}
       {news.length > 0 && (
@@ -647,15 +639,6 @@ export default function PublicDashboardPage() {
         </div>
       </div>
 
-      {/* 푸터 disclaimer — 추후 광고 영역으로 교체 가능 */}
-      <div style={{
-        marginTop: 24, padding: "16px 20px", borderRadius: 12,
-        background: "#f8fafc", border: "1px solid var(--border)",
-        textAlign: "center", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6,
-      }}>
-        본 사이트는 자동매매 봇의 운영 결과를 공개하는 데모입니다.
-        투자 권유나 수익 보장이 아니며, 실제 투자는 본인 책임입니다.
-      </div>
     </div>
   );
 }
