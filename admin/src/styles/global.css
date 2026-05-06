@@ -309,6 +309,109 @@ a:hover { text-decoration: underline; }
 .empty-state-icon { font-size: 32px; opacity: 0.4; margin-bottom: 8px; }
 .empty-state-text { font-size: 13px; }
 
+/* #241: 일별 캘린더 뷰 (Leaprr 스타일) */
+.day-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(15, 1fr);
+  gap: 4px;
+  padding: 4px 0;
+}
+.day-cal-cell {
+  aspect-ratio: 1;
+  border-radius: 4px;
+  background: #f1f5f9;
+  position: relative;
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+.day-cal-cell:hover { transform: scale(1.15); z-index: 10; }
+.day-cal-cell.win-strong { background: #16a34a; }
+.day-cal-cell.win-mid { background: #4ade80; }
+.day-cal-cell.win-light { background: #bbf7d0; }
+.day-cal-cell.loss-strong { background: #dc2626; }
+.day-cal-cell.loss-mid { background: #f87171; }
+.day-cal-cell.loss-light { background: #fecaca; }
+.day-cal-cell.empty { background: #f1f5f9; }
+.day-cal-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e293b;
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 100;
+}
+.day-cal-cell:hover .day-cal-tooltip { opacity: 1; }
+.day-cal-legend {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.day-cal-legend-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.day-cal-legend-row span {
+  width: 12px; height: 12px; border-radius: 3px;
+}
+
+/* #241: Skeleton loading */
+@keyframes skel-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.skel {
+  background: linear-gradient(90deg, #e2e8f0 0%, #f1f5f9 50%, #e2e8f0 100%);
+  background-size: 200% 100%;
+  border-radius: 8px;
+  animation: skel-pulse 1.5s ease-in-out infinite;
+}
+.skel-line { height: 14px; margin: 6px 0; }
+.skel-card { height: 100px; }
+
+/* #241: Dark mode (선택적, prefers-color-scheme + 토글) */
+[data-theme="dark"] {
+  --bg: #0f172a;
+  --card-bg: #1e293b;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --border: #334155;
+}
+[data-theme="dark"] body { background: var(--bg); color: var(--text-primary); }
+[data-theme="dark"] .card,
+[data-theme="dark"] .kpi-card-public {
+  background: var(--card-bg);
+  border-color: var(--border);
+}
+[data-theme="dark"] .day-cal-cell.empty { background: #334155; }
+[data-theme="dark"] .skel {
+  background: linear-gradient(90deg, #334155 0%, #475569 50%, #334155 100%);
+}
+.theme-toggle {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: all 0.2s;
+}
+.theme-toggle:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+
 /* #237: Hero — 전체 폭, 큰 손익률 + 큰 차트 */
 .pnl-hero {
   background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #312e81 100%);

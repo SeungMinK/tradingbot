@@ -23,6 +23,14 @@ export default function PublicDashboardPage() {
   const [accountPnl, setAccountPnl] = useState<any>(null);
   const [pnlHistory, setPnlHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  // #241: Dark mode (localStorage 영속)
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    try { return (localStorage.getItem("cryptobot-theme") as any) || "light"; } catch { return "light"; }
+  });
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try { localStorage.setItem("cryptobot-theme", theme); } catch {}
+  }, [theme]);
   const [showAllTrades, setShowAllTrades] = useState(true);
   const [tradeFilter, setTradeFilter] = useState<string | null>(null);
   const [sideFilter, setSideFilter] = useState<string | null>(null);
@@ -81,18 +89,23 @@ export default function PublicDashboardPage() {
     return () => clearInterval(timer);
   }, [analysis.length]);
 
+  // #241: Skeleton loading — 점프/깜빡임 줄이기
   if (loading) return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "60vh", gap: 16 }}>
-      <div style={{ display: "flex", gap: 6 }}>
-        {[0, 1, 2].map((i) => (
-          <div key={i} style={{
-            width: 10, height: 10, borderRadius: "50%", background: "var(--accent-blue)",
-            animation: `bounce 1.2s ease-in-out ${i * 0.15}s infinite`,
-          }} />
-        ))}
+    <div className="public-wrap">
+      <div className="public-header">
+        <div className="public-header-brand">
+          <div className="skel" style={{ width: 36, height: 36, borderRadius: 10 }} />
+          <div>
+            <div className="skel skel-line" style={{ width: 100 }} />
+            <div className="skel skel-line" style={{ width: 140, height: 11 }} />
+          </div>
+        </div>
+        <div className="skel" style={{ width: 70, height: 28, borderRadius: 20 }} />
       </div>
-      <span style={{ color: "var(--text-muted)", fontSize: 14 }}>AI가 시장을 분석하고 있습니다</span>
-      <style>{`@keyframes bounce { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; } 40% { transform: scale(1); opacity: 1; } }`}</style>
+      <div className="skel" style={{ height: 320, marginBottom: 24, borderRadius: 20 }} />
+      <div className="kpi-grid-public" style={{ gridTemplateColumns: "repeat(6, 1fr)" }}>
+        {[...Array(6)].map((_, i) => (<div key={i} className="skel skel-card" />))}
+      </div>
     </div>
   );
 
@@ -137,9 +150,18 @@ export default function PublicDashboardPage() {
             <div className="public-header-tag">업비트 자동매매 · {operatingDays}일째 운영</div>
           </div>
         </div>
-        <div className="status-badge">
-          <span className="status-badge-dot" />
-          LIVE
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <button
+            className="theme-toggle"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            title={theme === "dark" ? "라이트 모드" : "다크 모드"}
+          >
+            {theme === "dark" ? "☀️" : "🌙"}
+          </button>
+          <div className="status-badge">
+            <span className="status-badge-dot" />
+            LIVE
+          </div>
         </div>
       </div>
 
@@ -183,9 +205,19 @@ export default function PublicDashboardPage() {
           </div>
         </div>
 
-        {/* 일별 추이 차트 — 더 크고 시원하게 */}
+        {/* #241: 일별 추이 + BTC HODL 벤치마크 */}
         {pnlHistory.length > 1 && (
-          <div style={{ marginTop: 24, height: 200 }}>
+          <div style={{ marginTop: 24, height: 240 }}>
+            <div style={{ display: "flex", gap: 18, fontSize: 11, marginBottom: 6, opacity: 0.85 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 14, height: 2.5, background: accentColor, display: "inline-block", borderRadius: 2 }} />
+                내 봇
+              </span>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ width: 14, borderTop: "2px dashed #fbbf24", display: "inline-block" }} />
+                BTC 단순 보유
+              </span>
+            </div>
             <ResponsiveContainer>
               <LineChart data={pnlHistory} margin={{ top: 5, right: 8, left: -16, bottom: 0 }}>
                 <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
@@ -195,8 +227,9 @@ export default function PublicDashboardPage() {
                 <Tooltip
                   contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, fontSize: 12 }}
                   labelStyle={{ color: "#94a3b8" }}
-                  formatter={(v: any) => [`${v >= 0 ? "+" : ""}${v}%`, "누적 손익"]}
+                  formatter={(v: any, name: any) => [`${v >= 0 ? "+" : ""}${v}%`, name === "pnl_pct" ? "내 봇" : "BTC HODL"]}
                 />
+                <Line type="monotone" dataKey="btc_hodl_pct" stroke="#fbbf24" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
                 <Line type="monotone" dataKey="pnl_pct" stroke={accentColor} strokeWidth={2.5} dot={false} />
               </LineChart>
             </ResponsiveContainer>
@@ -242,6 +275,50 @@ export default function PublicDashboardPage() {
             <div className="kpi-label-public">보유 포지션</div>
             <div className="kpi-value-public">{portfolio.length}개</div>
             <div className="kpi-sub-public">{monitoringCoins.length}개 메이저 모니터링</div>
+          </div>
+        </div>
+      )}
+
+      {/* #241: 일별 캘린더 (Leaprr 스타일 green/red day) */}
+      {pnlHistory.length > 0 && (
+        <div className="card" style={{ marginBottom: 24 }}>
+          <div className="section-title-row" style={{ margin: "0 0 12px" }}>
+            <h2>일별 성과</h2>
+            <span className="section-meta">최근 30일 · 진한색=큰 변동</span>
+          </div>
+          <div className="day-cal-grid">
+            {pnlHistory.map((d: any, i: number) => {
+              const change = i > 0 ? (d.pnl_pct - pnlHistory[i - 1].pnl_pct) : d.pnl_pct;
+              let cls = "empty";
+              const abs = Math.abs(change);
+              if (change > 0) {
+                cls = abs > 2 ? "win-strong" : abs > 0.5 ? "win-mid" : "win-light";
+              } else if (change < 0) {
+                cls = abs > 2 ? "loss-strong" : abs > 0.5 ? "loss-mid" : "loss-light";
+              }
+              return (
+                <div key={i} className={`day-cal-cell ${cls}`}>
+                  <div className="day-cal-tooltip">
+                    {d.date}<br />
+                    {change >= 0 ? "+" : ""}{change.toFixed(2)}%
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="day-cal-legend">
+            <span>덜한</span>
+            <div className="day-cal-legend-row">
+              <span style={{ background: "#dc2626" }} />
+              <span style={{ background: "#f87171" }} />
+              <span style={{ background: "#fecaca" }} />
+              <span style={{ background: "#f1f5f9" }} />
+              <span style={{ background: "#bbf7d0" }} />
+              <span style={{ background: "#4ade80" }} />
+              <span style={{ background: "#16a34a" }} />
+            </div>
+            <span>진한</span>
+            <span style={{ marginLeft: 12 }}>← 손실 · 이익 →</span>
           </div>
         </div>
       )}

@@ -423,16 +423,32 @@ def get_account_pnl_history(request: Request, days: int = Query(30, ge=1, le=365
         # < 부등호: 그 날 *이전*까지의 누적. 입금 당일은 다음 날부터 반영.
         return sum(amt for d, amt in deps_list if d < date_str)
 
+    # #241: BTC HODL 벤치마크 — 같은 기간 BTC 단순 보유 시 수익률 비교용.
+    # 첫 날짜 BTC close를 기준점(0%)으로, 각 날짜 close 대비 변동.
+    btc_rows = db.execute(
+        f"""
+        SELECT date, close FROM ohlcv_daily
+        WHERE coin='KRW-BTC' AND date >= DATE('now', '-{days} days')
+        ORDER BY date ASC
+        """
+    ).fetchall()
+    btc_map = {dict(r)["date"]: float(dict(r)["close"]) for r in btc_rows}
+    btc_base = float(dict(btc_rows[0])["close"]) if btc_rows else 0
+
     history = []
     for r in rows:
         d = dict(r)
         cum_dep = cum_deposits_at(d["date"])
         end_bal = float(d.get("ending_balance_krw") or 0)
         pnl_pct = ((end_bal - cum_dep) / cum_dep * 100) if cum_dep > 0 else 0
+        # BTC HODL 같은 기간 변동
+        btc_close = btc_map.get(d["date"])
+        btc_pct = ((btc_close - btc_base) / btc_base * 100) if (btc_close and btc_base > 0) else None
         history.append({
             "date": d["date"],
             "pnl_pct": round(pnl_pct, 2),
             "daily_return_pct": d.get("daily_return_pct"),
+            "btc_hodl_pct": round(btc_pct, 2) if btc_pct is not None else None,
         })
     return history
 
