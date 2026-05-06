@@ -28,6 +28,8 @@ SWEEP_CONFIGS: dict[str, dict[str, list]] = {
     "breakout_momentum": {"entry_period": [10, 20, 30]},
     "bollinger_squeeze": {"bb_std": [1.5, 2.0, 2.5]},
     "bb_rsi_combined": {"rsi_oversold": [25, 30, 35], "bb_std": [1.5, 2.0]},
+    # #226: 진입 임계값(공포지수, RSI) 두 축으로 sweep
+    "long_term_swing": {"fear_threshold": [25, 30, 35], "rsi_entry_max": [40, 45, 50]},
 }
 
 
