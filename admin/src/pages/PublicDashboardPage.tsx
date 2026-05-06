@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   LineChart, Line, XAxis, YAxis, CartesianGrid, ReferenceLine,
+  BarChart, Bar,
 } from "recharts";
 import { formatPercent, formatDateTime } from "../utils/format";
 import { getMarketStateKR } from "../utils/indicatorDescriptions";
@@ -130,8 +131,8 @@ export default function PublicDashboardPage() {
 
   const activeStrategy = strategies.find((s: any) => s.is_active)?.display_name || "-";
 
-  // #239: 운영 기간 계산 (첫 daily_returns 또는 매매)
-  const startDate = dailyReturns.length > 0 ? dailyReturns[dailyReturns.length - 1]?.date : null;
+  // #242: 운영 시작일 — accountPnl.started_at (서버에서 정확히 계산)
+  const startDate = accountPnl?.started_at ?? null;
   const operatingDays = startDate ? Math.floor((Date.now() - new Date(startDate).getTime()) / 86400000) : 0;
 
   // 최대 일일 손실폭(MDD) 계산 (pnlHistory에서)
@@ -279,49 +280,47 @@ export default function PublicDashboardPage() {
         </div>
       )}
 
-      {/* #241: 일별 캘린더 (Leaprr 스타일 green/red day) */}
-      {pnlHistory.length > 0 && (
-        <div className="card" style={{ marginBottom: 24 }}>
-          <div className="section-title-row" style={{ margin: "0 0 12px" }}>
-            <h2>일별 성과</h2>
-            <span className="section-meta">최근 30일 · 진한색=큰 변동</span>
-          </div>
-          <div className="day-cal-grid">
-            {pnlHistory.map((d: any, i: number) => {
-              const change = i > 0 ? (d.pnl_pct - pnlHistory[i - 1].pnl_pct) : d.pnl_pct;
-              let cls = "empty";
-              const abs = Math.abs(change);
-              if (change > 0) {
-                cls = abs > 2 ? "win-strong" : abs > 0.5 ? "win-mid" : "win-light";
-              } else if (change < 0) {
-                cls = abs > 2 ? "loss-strong" : abs > 0.5 ? "loss-mid" : "loss-light";
-              }
-              return (
-                <div key={i} className={`day-cal-cell ${cls}`}>
-                  <div className="day-cal-tooltip">
-                    {d.date}<br />
-                    {change >= 0 ? "+" : ""}{change.toFixed(2)}%
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <div className="day-cal-legend">
-            <span>덜한</span>
-            <div className="day-cal-legend-row">
-              <span style={{ background: "#dc2626" }} />
-              <span style={{ background: "#f87171" }} />
-              <span style={{ background: "#fecaca" }} />
-              <span style={{ background: "#f1f5f9" }} />
-              <span style={{ background: "#bbf7d0" }} />
-              <span style={{ background: "#4ade80" }} />
-              <span style={{ background: "#16a34a" }} />
+      {/* #242: 일별 손익 막대 차트 (캘린더 블록 → 막대 차트로 변경, 더 명확) */}
+      {pnlHistory.length > 0 && (() => {
+        const dailyData = pnlHistory.map((d: any, i: number) => ({
+          date: d.date,
+          change: i > 0 ? Number((d.pnl_pct - pnlHistory[i - 1].pnl_pct).toFixed(2)) : Number(d.pnl_pct.toFixed(2)),
+        }));
+        const wins = dailyData.filter(d => d.change > 0).length;
+        const losses = dailyData.filter(d => d.change < 0).length;
+        const flat = dailyData.length - wins - losses;
+        return (
+          <div className="card" style={{ marginBottom: 24 }}>
+            <div className="section-title-row" style={{ margin: "0 0 12px" }}>
+              <h2>일별 손익</h2>
+              <span className="section-meta">
+                <span style={{ color: "#10b981" }}>이익 {wins}일</span> ·
+                <span style={{ color: "#ef4444", marginLeft: 6 }}>손실 {losses}일</span>
+                {flat > 0 && <span style={{ color: "var(--text-muted)", marginLeft: 6 }}>· 보합 {flat}일</span>}
+              </span>
             </div>
-            <span>진한</span>
-            <span style={{ marginLeft: 12 }}>← 손실 · 이익 →</span>
+            <div style={{ height: 180 }}>
+              <ResponsiveContainer>
+                <BarChart data={dailyData} margin={{ top: 5, right: 8, left: -16, bottom: 0 }}>
+                  <CartesianGrid stroke="var(--border)" vertical={false} strokeDasharray="3 3" />
+                  <XAxis dataKey="date" tick={{ fill: "var(--text-muted)", fontSize: 10 }} tickFormatter={(v: string) => v.slice(5)} />
+                  <YAxis tick={{ fill: "var(--text-muted)", fontSize: 10 }} unit="%" width={40} />
+                  <ReferenceLine y={0} stroke="var(--border)" />
+                  <Tooltip
+                    contentStyle={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, fontSize: 12, color: "#fff" }}
+                    formatter={(v: any) => [`${v >= 0 ? "+" : ""}${v}%`, "변동"]}
+                  />
+                  <Bar dataKey="change" radius={[3, 3, 0, 0]}>
+                    {dailyData.map((d, i) => (
+                      <Cell key={i} fill={d.change >= 0 ? "#10b981" : "#ef4444"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* 뉴스 티커 */}
       {news.length > 0 && (

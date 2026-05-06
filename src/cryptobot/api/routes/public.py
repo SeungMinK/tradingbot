@@ -385,9 +385,25 @@ def get_public_account_pnl(request: Request):
         if y_bal > 0:
             today_pct = (total_asset - today_deposits - y_bal) / y_bal * 100
 
+    # #242: 운영 시작일 — 첫 daily_report 또는 첫 capital_deposit 중 빠른 날짜
+    started_at = None
+    first_dr = db.execute(
+        "SELECT date FROM daily_reports ORDER BY date ASC LIMIT 1"
+    ).fetchone()
+    first_dep = db.execute(
+        "SELECT MIN(DATE(deposited_at)) AS d FROM capital_deposits WHERE currency='KRW'"
+    ).fetchone()
+    candidates = []
+    if first_dr: candidates.append(dict(first_dr).get("date"))
+    if first_dep: candidates.append(dict(first_dep).get("d"))
+    candidates = [c for c in candidates if c]
+    if candidates:
+        started_at = min(candidates)
+
     return {
         "pnl_pct": round(pnl_pct, 2),
         "today_pct": round(today_pct, 2),
+        "started_at": started_at,
         "deposits_count": db.execute(
             "SELECT COUNT(*) FROM capital_deposits WHERE currency='KRW'"
         ).fetchone()[0],
