@@ -19,12 +19,12 @@ from cryptobot.exchange.kis.auth import KISTokenManager
 
 logger = logging.getLogger(__name__)
 
-# KIS API rate limit (#319):
-# - 공식 실전 한도 1초 20건이지만, 특정 endpoint(시세/잔고)는 더 빡빡 (~5건/초)
-# - 봇 + admin API + 디버그 동시 호출 시 한꺼번에 터져 "초당 거래건수 초과" 빈번
-# - 0.06초(16건/초)는 너무 공격적 → 0.25초(4건/초) 안전 마진
-DEFAULT_MIN_INTERVAL_SEC = 0.25  # 1초 4건 (5건 한도 + 마진)
-PAPER_MIN_INTERVAL_SEC = 0.5  # 1초 2건 (모의)
+# KIS API rate limit (#326):
+# - 공식 한도 1초 20건이지만 endpoint별 차등 (분봉/잔고는 1초 1회 수준)
+# - 0.25초(4건/초)도 분봉 API에서 자주 터짐
+# - 0.5초(2건/초)로 더 보수적, 캐시 강화로 호출 빈도 자체 줄임
+DEFAULT_MIN_INTERVAL_SEC = 0.5  # 1초 2건 (분봉 endpoint 한도 + 마진)
+PAPER_MIN_INTERVAL_SEC = 0.5
 
 
 class KISClient:
