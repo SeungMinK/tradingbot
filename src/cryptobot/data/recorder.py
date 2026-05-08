@@ -32,8 +32,12 @@ class DataRecorder:
         skip_reason: str | None = None,
         snapshot_id: int | None = None,
         strategy_params_json: str | None = None,
+        market: str = "upbit",
     ) -> int:
         """매매 신호를 기록한다 (실행 여부 관계없이).
+
+        Args:
+            market: 시장 식별자 ("upbit" / "kis_kr" / "kis_us"). 기본값 "upbit"는 코인 봇 호환성 유지.
 
         Returns:
             생성된 signal의 id
@@ -45,13 +49,14 @@ class DataRecorder:
         cursor = self._db.execute(
             """
             INSERT INTO trade_signals (
-                coin, signal_type, strategy, confidence, trigger_reason,
+                coin, market, signal_type, strategy, confidence, trigger_reason,
                 trigger_value, current_price, target_price,
                 executed, trade_id, skip_reason, snapshot_id, strategy_params_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 coin,
+                market,
                 signal_type,
                 strategy,
                 confidence,
@@ -91,6 +96,7 @@ class DataRecorder:
         profit_krw: float | None = None,
         hold_duration_minutes: int | None = None,
         order_uuid: str | None = None,
+        market: str = "upbit",
     ) -> int:
         """매매 체결을 기록한다.
 
@@ -117,16 +123,17 @@ class DataRecorder:
         cursor = self._db.execute(
             """
             INSERT INTO trades (
-                coin, side, price, amount, total_krw, fee_krw,
+                coin, market, side, price, amount, total_krw, fee_krw,
                 strategy, trigger_reason, trigger_value,
                 param_k_value, param_stop_loss, param_trailing_stop,
                 market_state_at_trade, btc_price_at_trade, rsi_at_trade,
                 buy_trade_id, profit_pct, profit_krw, hold_duration_minutes,
                 order_uuid
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 coin,
+                market,
                 side,
                 price,
                 amount,
@@ -187,6 +194,7 @@ class DataRecorder:
         trades_summary: dict,
         active_param_id: int | None = None,
         market_state: str | None = None,
+        market: str = "upbit",
     ) -> int:
         """일일 정산 리포트를 저장한다.
 
@@ -198,16 +206,17 @@ class DataRecorder:
         cursor = self._db.execute(
             """
             INSERT OR REPLACE INTO daily_reports (
-                date, starting_balance_krw, ending_balance_krw, total_asset_value_krw,
+                date, market, starting_balance_krw, ending_balance_krw, total_asset_value_krw,
                 realized_pnl_krw, unrealized_pnl_krw, daily_return_pct,
                 total_trades, buy_trades, sell_trades,
                 winning_trades, losing_trades, win_rate,
                 avg_profit_pct, avg_loss_pct, max_drawdown_pct, total_fees_krw,
                 active_param_id, market_state
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 report_date.isoformat(),
+                market,
                 starting_balance,
                 ending_balance,
                 total_asset_value,
