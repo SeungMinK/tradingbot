@@ -134,7 +134,19 @@ class KISKoreanBot:
                     self._notifier.notify_error(f"[KIS_KR] 틱 예외: {e}")
             time.sleep(TICK_INTERVAL_SEC)
 
+    def _is_trading_enabled(self) -> bool:
+        """DB bot_config.kis_kr_trading_enabled 체크. 없으면 디폴트 enabled."""
+        row = self._db.execute(
+            "SELECT value FROM bot_config WHERE key = 'kis_kr_trading_enabled'"
+        ).fetchone()
+        if not row:
+            return True
+        return str(dict(row).get("value", "true")).lower() == "true"
+
     def _tick(self) -> None:
+        if not self._is_trading_enabled():
+            logger.debug("kis_kr 거래 DB에서 비활성. 스킵")
+            return
         if not self._exchange.is_market_open():
             now = datetime.now(KST).strftime("%H:%M")
             logger.debug("정규장 외 시간 (%s KST). 스킵", now)
@@ -282,6 +294,9 @@ class KISKoreanBot:
 
 def main() -> None:
     setup_logging("bot_kis_kr")
+    if not config.kis.kr_enabled:
+        logger.info("KIS_KR_ENABLED=false — 한국주식 봇 비활성. 종료.")
+        sys.exit(0)
     KISKoreanBot().start()
 
 

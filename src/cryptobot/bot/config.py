@@ -37,9 +37,12 @@ class KISConfig:
     account_number: str = field(default_factory=lambda: os.getenv("KIS_ACCOUNT_NUMBER", ""))
     account_product_code: str = field(default_factory=lambda: os.getenv("KIS_ACCOUNT_PRODUCT_CODE", "01"))
     is_paper: bool = field(default_factory=lambda: os.getenv("KIS_IS_PAPER", "false").lower() == "true")
-    # #274: 시장별 예산 (단일 KIS 계좌에서 한국/미국 충돌 방지)
+    # #274: 시장별 예산 (단일 KIS 계좌에서 한국/미국 충돌 방지). #281부터 실 API 잔고 사용 — 이 값은 폴백.
     kr_budget_krw: float = field(default_factory=lambda: float(os.getenv("KIS_KR_BUDGET_KRW", "200000")))
     us_budget_krw: float = field(default_factory=lambda: float(os.getenv("KIS_US_BUDGET_KRW", "200000")))
+    # #285: 시장별 활성화 토글. 시드 작아 한국주식 1주 단위 거래 어려울 때 미국 단독 운영용.
+    kr_enabled: bool = field(default_factory=lambda: os.getenv("KIS_KR_ENABLED", "true").lower() == "true")
+    us_enabled: bool = field(default_factory=lambda: os.getenv("KIS_US_ENABLED", "true").lower() == "true")
 
     @property
     def is_configured(self) -> bool:

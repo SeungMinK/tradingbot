@@ -92,21 +92,39 @@ fi
 sleep 1
 
 # #262: KIS API key 로드 (.env). #270: 줄 앞 공백/탭, = 양옆 공백, 따옴표 모두 허용.
-KIS_KEY_SET=false
-if [[ -f "$PROJECT_ROOT/.env" ]]; then
-    KIS_APP_KEY=$(grep -E "^[[:space:]]*KIS_APP_KEY[[:space:]]*=" "$PROJECT_ROOT/.env" 2>/dev/null \
-        | head -1 \
-        | sed -E 's/^[[:space:]]*KIS_APP_KEY[[:space:]]*=[[:space:]]*//' \
-        | sed -E 's/[[:space:]]*$//' \
-        | sed -E "s/^[\"']//;s/[\"']$//")
-    if [[ -n "$KIS_APP_KEY" ]]; then
-        KIS_KEY_SET=true
+read_env() {
+    local key=$1
+    local default=$2
+    if [[ -f "$PROJECT_ROOT/.env" ]]; then
+        local val
+        val=$(grep -E "^[[:space:]]*${key}[[:space:]]*=" "$PROJECT_ROOT/.env" 2>/dev/null \
+            | head -1 \
+            | sed -E "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//" \
+            | sed -E 's/[[:space:]]*$//' \
+            | sed -E "s/^[\"']//;s/[\"']$//")
+        if [[ -n "$val" ]]; then
+            echo "$val"
+            return
+        fi
     fi
+    echo "$default"
+}
+
+KIS_APP_KEY=$(read_env "KIS_APP_KEY" "")
+KIS_KEY_SET=false
+if [[ -n "$KIS_APP_KEY" ]]; then
+    KIS_KEY_SET=true
 fi
+
+# #285: 시장별 활성 토글
+KIS_KR_ENABLED=$(read_env "KIS_KR_ENABLED" "true")
+KIS_US_ENABLED=$(read_env "KIS_US_ENABLED" "true")
 
 # 3. 한국주식 봇
 echo -e "${CYAN}[3/6] 한국주식 봇 (KIS)${NC}"
-if [[ "$KIS_KEY_SET" == "true" ]]; then
+if [[ "$KIS_KR_ENABLED" != "true" ]]; then
+    echo -e "${YELLOW}  KIS_KR_ENABLED=false — 한국주식 봇 스킵${NC}"
+elif [[ "$KIS_KEY_SET" == "true" ]]; then
     start_bg "bot_kis_kr" ".venv/bin/python -m cryptobot.entrypoints.run_kis_kr"
 else
     echo -e "${YELLOW}  KIS_APP_KEY 미설정 — 한국주식 봇 스킵${NC}"
@@ -116,7 +134,9 @@ sleep 1
 
 # 4. 미국주식 봇
 echo -e "${CYAN}[4/6] 미국주식 봇 (KIS)${NC}"
-if [[ "$KIS_KEY_SET" == "true" ]]; then
+if [[ "$KIS_US_ENABLED" != "true" ]]; then
+    echo -e "${YELLOW}  KIS_US_ENABLED=false — 미국주식 봇 스킵${NC}"
+elif [[ "$KIS_KEY_SET" == "true" ]]; then
     start_bg "bot_kis_us" ".venv/bin/python -m cryptobot.entrypoints.run_kis_us"
 else
     echo -e "${YELLOW}  KIS_APP_KEY 미설정 — 미국주식 봇 스킵${NC}"

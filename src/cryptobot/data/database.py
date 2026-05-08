@@ -948,6 +948,25 @@ class Database:
                         )
                 logger.info("#228: 메이저 코인 화이트리스트 설정 추가")
 
+            # #285: KIS 시장별 거래 토글 (DB 기반 ON/OFF)
+            for k, default_val, dn, desc in (
+                ("kis_kr_trading_enabled", "false", "한국주식 거래 활성",
+                 "false면 봇 도는데 거래만 OFF — 시드 작을 때 단가 1주 미만 종목 회피"),
+                ("kis_us_trading_enabled", "true", "미국주식 거래 활성",
+                 "false면 봇 도는데 거래만 OFF"),
+            ):
+                exists = conn.execute(
+                    "SELECT 1 FROM bot_config WHERE key = ?", (k,)
+                ).fetchone()
+                if not exists:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO bot_config "
+                        "(key, value, value_type, category, display_name, description) "
+                        "VALUES (?, ?, 'bool', 'kis', ?, ?)",
+                        (k, default_val, dn, desc),
+                    )
+                    logger.info("#285: bot_config %s=%s 추가", k, default_val)
+
             # 코인 카테고리별 전략 기본값
             row = conn.execute("SELECT COUNT(*) FROM coin_strategy_config").fetchone()
             if row[0] == 0:
