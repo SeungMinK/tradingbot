@@ -33,6 +33,7 @@ export default function DashboardPage() {
   const [visitStats, setVisitStats] = useState<any>(null);  // #240
   const [marketStats, setMarketStats] = useState<any>(null);  // #254 6단계
   const [marketCapital, setMarketCapital] = useState<any>(null);  // #277
+  const [marketUniverse, setMarketUniverse] = useState<any>(null);  // #278
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(() => {
@@ -49,7 +50,8 @@ export default function DashboardPage() {
       client.get("/visits/stats?days=30").then((r) => r.data).catch(() => null),
       client.get("/market-stats").then((r) => r.data).catch(() => null),
       client.get("/market-capital/status").then((r) => r.data).catch(() => null),
-    ]).then(([bal, pos, hist, mkt, trades, coins, nStats, news, llm, vs, ms, mc]) => {
+      client.get("/market-universe").then((r) => r.data).catch(() => null),
+    ]).then(([bal, pos, hist, mkt, trades, coins, nStats, news, llm, vs, ms, mc, mu]) => {
       setBalance(bal);
       setPositions(pos as PositionsResponse | null);
       setHistory(hist as BalanceHistory[]);
@@ -62,6 +64,7 @@ export default function DashboardPage() {
       setVisitStats(vs);
       setMarketStats(ms);
       setMarketCapital(mc);
+      setMarketUniverse(mu);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
@@ -332,6 +335,51 @@ export default function DashboardPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* #278: 시장별 모니터링 종목 + 활성 전략 */}
+      {marketUniverse?.markets?.length > 0 && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-title">시장별 모니터링 + 전략</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 12 }}>
+            {marketUniverse.markets.map((m: any) => (
+              <div key={m.market} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>{m.display_name}</div>
+                <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>
+                  <strong>전략:</strong> {m.strategy.display_name}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10, lineHeight: 1.5 }}>
+                  {m.rules.description}
+                  <br />
+                  <span style={{ color: m.rules.type === "strategy_module" ? "#10b981" : "#f59e0b" }}>
+                    {m.rules.type === "strategy_module" ? "✅ 자동 매수+매도" : "⚠️ 매도만 자동 (매수 수동)"}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 6 }}>
+                  <strong>모니터링 ({m.symbol_count}종목):</strong>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {m.symbols.map((s: string) => (
+                    <span key={s} style={{
+                      fontSize: 10, padding: "2px 6px", borderRadius: 4,
+                      background: "#f1f5f9", border: "1px solid var(--border)",
+                    }}>
+                      {s.replace("KRW-", "")}
+                    </span>
+                  ))}
+                </div>
+                {m.strategy.params_json && (
+                  <details style={{ marginTop: 8 }}>
+                    <summary style={{ fontSize: 11, cursor: "pointer", color: "var(--text-muted)" }}>전략 파라미터</summary>
+                    <pre style={{ fontSize: 10, background: "#f8fafc", padding: 6, borderRadius: 4, marginTop: 4, overflow: "auto" }}>
+                      {JSON.stringify(JSON.parse(m.strategy.params_json), null, 2)}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
