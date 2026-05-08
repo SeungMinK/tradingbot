@@ -45,7 +45,7 @@ def get_market_universe(_: UserResponse = Depends(get_current_user)):
     from cryptobot.entrypoints.run_kis_us import _build_params, _parse_universe
     from cryptobot.bot.profit_threshold import get_thresholds
 
-    us_universe = _parse_universe()  # env KIS_US_UNIVERSE 반영
+    us_universe = _parse_universe(db)  # #311: DB의 enabled 종목 우선 (env는 fallback)
     us_params = _build_params(len(us_universe))
     kr_th = get_thresholds("kis_kr")
 
