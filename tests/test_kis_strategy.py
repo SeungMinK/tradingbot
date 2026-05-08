@@ -243,7 +243,7 @@ def test_build_params_thresholds_overridable(monkeypatch):
 
 
 def test_build_params_day_trading_thresholds_default(monkeypatch):
-    """단타모드 ON 시 디폴트가 단타용으로 좁아짐."""
+    """단타모드 ON 시 #301 디폴트: 3X 레버리지 ETF 변동폭에 맞춰 과감하게."""
     from cryptobot.entrypoints.run_kis_us import _build_params
 
     monkeypatch.delenv("KIS_US_TAKE_PROFIT_PCT", raising=False)
@@ -252,9 +252,9 @@ def test_build_params_day_trading_thresholds_default(monkeypatch):
     monkeypatch.setenv("KIS_US_DAY_TRADING", "true")
     p = _build_params(universe_size=1)
     assert p.day_trading_mode is True
-    assert p.take_profit_pct == 2.5
-    assert p.stop_loss_pct == -1.5
-    assert p.trailing_stop_pct == -1.0
+    assert p.take_profit_pct == 4.0   # #301 익절 4%
+    assert p.stop_loss_pct == -4.0    # #301 손절 -4% (1:1 손익비)
+    assert p.trailing_stop_pct == -2.0  # #301 트레일링 -2%
 
 
 def test_build_params_swing_thresholds_default(monkeypatch):
