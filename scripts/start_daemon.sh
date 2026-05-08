@@ -91,10 +91,14 @@ fi
 
 sleep 1
 
-# #262: KIS API key 로드 (.env)
+# #262: KIS API key 로드 (.env). #270: 줄 앞 공백/탭, = 양옆 공백, 따옴표 모두 허용.
 KIS_KEY_SET=false
 if [[ -f "$PROJECT_ROOT/.env" ]]; then
-    KIS_APP_KEY=$(grep -E "^KIS_APP_KEY=" "$PROJECT_ROOT/.env" 2>/dev/null | cut -d= -f2- | tr -d ' "')
+    KIS_APP_KEY=$(grep -E "^[[:space:]]*KIS_APP_KEY[[:space:]]*=" "$PROJECT_ROOT/.env" 2>/dev/null \
+        | head -1 \
+        | sed -E 's/^[[:space:]]*KIS_APP_KEY[[:space:]]*=[[:space:]]*//' \
+        | sed -E 's/[[:space:]]*$//' \
+        | sed -E "s/^[\"']//;s/[\"']$//")
     if [[ -n "$KIS_APP_KEY" ]]; then
         KIS_KEY_SET=true
     fi
