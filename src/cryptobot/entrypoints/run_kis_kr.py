@@ -30,7 +30,6 @@ from cryptobot.bot.kis_strategy import (
     evaluate_buy,
     evaluate_sell,
 )
-from cryptobot.bot.market_budget import get_available_budget
 from cryptobot.data.database import Database
 from cryptobot.data.recorder import DataRecorder
 from cryptobot.exceptions import APIError, ConfigError
@@ -199,15 +198,20 @@ class KISKoreanBot:
             logger.debug("%s 매수 미판정: %s", symbol, signal_.reason)
             return
 
-        budget = get_available_budget(self._db, "kis_kr")
+        # 실제 KIS API 잔고 사용 (#279 후속): 가정된 시드가 아닌 실잔고 기준
+        try:
+            budget = self._exchange.get_balance("KRW")
+        except APIError as e:
+            logger.warning("KRW 예수금 조회 실패 — 매수 스킵: %s", e)
+            return
         qty, size_reason = calc_position_size(
-            available_budget_krw=budget,
-            current_price_krw=price,
+            available_budget=budget,
+            current_price=price,
             fractional=False,
             params=KR_PARAMS,
         )
         if qty <= 0:
-            logger.info("%s 매수 신호이나 사이즈 0 (%s) — 스킵", symbol, size_reason)
+            logger.info("%s 매수 신호이나 사이즈 0 (잔고=%.0f원, %s) — 스킵", symbol, budget, size_reason)
             return
 
         logger.info(

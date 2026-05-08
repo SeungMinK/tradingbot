@@ -30,7 +30,6 @@ from cryptobot.bot.kis_strategy import (
     evaluate_buy,
     evaluate_sell,
 )
-from cryptobot.bot.market_budget import get_available_budget
 from cryptobot.data.database import Database
 from cryptobot.data.recorder import DataRecorder
 from cryptobot.exceptions import APIError, ConfigError
@@ -58,7 +57,6 @@ DEFAULT_US_UNIVERSE = [
 ]
 
 TICK_INTERVAL_SEC = 60
-FX_RATE_KRW_PER_USD = 1380.0  # 추정 환율 (정확한 값은 잔고 reconcile로 보정)
 
 # 미국주식 보수적 파라미터 (소수점 매수 가능 → 30% 그대로)
 US_PARAMS = KISStrategyParams(
@@ -199,17 +197,20 @@ class KISUSBot:
             logger.debug("%s 매수 미판정: %s", symbol, signal_.reason)
             return
 
-        budget_krw = get_available_budget(self._db, "kis_us")
-        # KRW 환산하여 사이즈 계산 (전략 모듈은 단위 무관 — 동일 통화면 OK)
-        price_krw = price_usd * FX_RATE_KRW_PER_USD
+        # 실제 KIS API USD 예수금 사용 (#279 후속): 환율 고정값 제거
+        try:
+            budget_usd = self._exchange.get_balance("USD")
+        except APIError as e:
+            logger.warning("USD 예수금 조회 실패 — 매수 스킵: %s", e)
+            return
         qty, size_reason = calc_position_size(
-            available_budget_krw=budget_krw,
-            current_price_krw=price_krw,
+            available_budget=budget_usd,
+            current_price=price_usd,
             fractional=True,
             params=US_PARAMS,
         )
         if qty <= 0:
-            logger.info("%s 매수 신호이나 사이즈 0 (%s) — 스킵", symbol, size_reason)
+            logger.info("%s 매수 신호이나 사이즈 0 ($%.2f USD, %s) — 스킵", symbol, budget_usd, size_reason)
             return
 
         logger.info(

@@ -26,15 +26,57 @@ def _record(db, market: str, amount: float, source: str, note: str = "") -> int:
     return cur.lastrowid
 
 
+def _fetch_live_balance(market: str) -> dict:
+    """실제 KIS API 잔고 조회. 실패 시 None 반환 — UI가 '조회불가' 표시."""
+    from cryptobot.bot.config import config
+
+    if not config.kis.is_configured:
+        return {"available": None, "currency": None, "error": "KIS 미설정"}
+
+    try:
+        from cryptobot.exchange.kis.auth import KISTokenManager
+
+        tm = KISTokenManager(
+            app_key=config.kis.app_key,
+            app_secret=config.kis.app_secret,
+            is_paper=config.kis.is_paper,
+        )
+        if market == "kis_kr":
+            from cryptobot.exchange.kis_kr import KISKoreanExchange
+
+            ex = KISKoreanExchange(
+                token_manager=tm,
+                account_number=config.kis.account_number,
+                account_product_code=config.kis.account_product_code,
+                is_paper=config.kis.is_paper,
+            )
+            return {"available": ex.get_balance("KRW"), "currency": "KRW", "error": None}
+        if market == "kis_us":
+            from cryptobot.exchange.kis_us import KISUSExchange
+
+            ex = KISUSExchange(
+                token_manager=tm,
+                account_number=config.kis.account_number,
+                account_product_code=config.kis.account_product_code,
+                is_paper=config.kis.is_paper,
+            )
+            return {"available": ex.get_balance("USD"), "currency": "USD", "error": None}
+    except Exception as e:
+        logger.warning("실잔고 조회 실패 (%s): %s", market, e)
+        return {"available": None, "currency": None, "error": str(e)}
+    return {"available": None, "currency": None, "error": "unknown market"}
+
+
 @router.get("/status")
 def get_status(_: UserResponse = Depends(get_current_user)):
-    """시장별 시드/PnL/가용 예산."""
+    """시장별 장부(ledger) 상태 + 실제 KIS API 잔고."""
     db = get_db()
-    return {
-        "markets": [
-            {**get_market_budget_status(db, m)} for m in VALID_KIS_MARKETS
-        ]
-    }
+    markets = []
+    for m in VALID_KIS_MARKETS:
+        ledger = get_market_budget_status(db, m)
+        live = _fetch_live_balance(m)
+        markets.append({**ledger, "live": live})
+    return {"markets": markets}
 
 
 @router.get("/history")

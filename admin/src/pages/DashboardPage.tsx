@@ -429,11 +429,11 @@ export default function DashboardPage() {
             <thead>
               <tr>
                 <th style={{ textAlign: "left", padding: 6 }}>시장</th>
-                <th style={{ textAlign: "right", padding: 6 }}>시드</th>
+                <th style={{ textAlign: "right", padding: 6 }}>시드(장부)</th>
                 <th style={{ textAlign: "right", padding: 6 }}>실현 PnL</th>
                 <th style={{ textAlign: "right", padding: 6 }}>보유 원가</th>
-                <th style={{ textAlign: "right", padding: 6 }}>가용 예산</th>
-                <th style={{ textAlign: "right", padding: 6 }}>자체 자본</th>
+                <th style={{ textAlign: "right", padding: 6 }}>장부 가용</th>
+                <th style={{ textAlign: "right", padding: 6 }}>실제 잔고 (API)</th>
               </tr>
             </thead>
             <tbody>
@@ -447,15 +447,18 @@ export default function DashboardPage() {
                     {m.realized_pnl >= 0 ? "+" : ""}{Number(m.realized_pnl).toLocaleString()}원
                   </td>
                   <td style={{ textAlign: "right", padding: 6 }}>{Number(m.held_cost).toLocaleString()}원</td>
-                  <td style={{ textAlign: "right", padding: 6, fontWeight: 600 }}>{Number(m.available).toLocaleString()}원</td>
-                  <td style={{ textAlign: "right", padding: 6, fontWeight: 600 }}>{Number(m.current_capital).toLocaleString()}원</td>
+                  <td style={{ textAlign: "right", padding: 6 }}>{Number(m.available).toLocaleString()}원</td>
+                  <td style={{ textAlign: "right", padding: 6, fontWeight: 700, color: "var(--accent)" }}>
+                    {m.live?.available != null
+                      ? `${Number(m.live.available).toLocaleString()} ${m.live.currency || ""}`
+                      : <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>조회불가</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
           <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
-            💡 입금 50:50 분배: 한투 계좌에 N원 입금 → 한국/미국에 N/2씩 자동 등록.
-            이동: 시장 간 자본 재배치 (수익/손실 보정).
+            💡 <strong>실제 잔고 (API)</strong>가 봇이 매수에 쓰는 진짜 예산. 장부값은 입출금 이력 추적용.
           </div>
         </div>
       )}
