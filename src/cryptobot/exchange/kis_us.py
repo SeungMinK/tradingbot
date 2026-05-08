@@ -196,7 +196,7 @@ class KISUSExchange(Exchange):
         Args:
             symbol: ticker (예: "NVDA"). 거래소는 자동 매핑.
         """
-        excd = self._exchange_code(symbol)
+        excd = self._quote_exchange_code(symbol)  # 시세는 3글자
         data = self._client.get(
             "/uapi/overseas-price/v1/quotations/price",
             tr_id=self._tr_ids["current_price"],
@@ -222,7 +222,7 @@ class KISUSExchange(Exchange):
         if interval != "day":
             raise ValueError(f"미국주식은 day만 지원 (요청: {interval})")
 
-        excd = self._exchange_code(symbol)
+        excd = self._quote_exchange_code(symbol)  # 시세는 3글자
         end_date = datetime.now(NY).strftime("%Y%m%d")
         from datetime import timedelta as _td
 
@@ -433,11 +433,21 @@ class KISUSExchange(Exchange):
     # ---- 내부 ----
 
     def _exchange_code(self, symbol: str) -> str:
-        """ticker → 거래소 코드 매핑.
+        """ticker → 주문/잔고용 거래소 코드 (4글자: NASD/NYSE/AMEX).
 
         풀에 없으면 NASDAQ 기본값. 추후 종목 마스터 도입 시 정확화.
         """
         return DEFAULT_EXCHANGE_BY_TICKER.get(symbol, "NASD")
+
+    def _quote_exchange_code(self, symbol: str) -> str:
+        """ticker → 시세 API용 거래소 코드 (3글자: NAS/NYS/AMS).
+
+        KIS는 시세 API와 주문 API가 거래소 코드 체계가 다름:
+        - 시세 (/quotations/price, /quotations/dailyprice): EXCD 3글자
+        - 주문/잔고 (/trading/order, /inquire-balance): OVRS_EXCG_CD 4글자
+        """
+        order_code = DEFAULT_EXCHANGE_BY_TICKER.get(symbol, "NASD")
+        return {"NASD": "NAS", "NYSE": "NYS", "AMEX": "AMS"}.get(order_code, "NAS")
 
     def _inquire_balance(self) -> dict:
         return self._client.get(

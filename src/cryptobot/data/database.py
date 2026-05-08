@@ -354,6 +354,21 @@ CREATE TABLE IF NOT EXISTS market_capital_deposits (
 );
 CREATE INDEX IF NOT EXISTS idx_market_capital_market_at ON market_capital_deposits(market, deposited_at DESC);
 
+-- #293: KIS 미국주식 종목 풀 (DB 기반, admin 관리 가능).
+-- enabled=TRUE 종목만 봇이 모니터링/매매. 후보는 enabled=FALSE로 유지.
+CREATE TABLE IF NOT EXISTS kis_us_symbols (
+    ticker TEXT PRIMARY KEY,
+    display_name TEXT,
+    exchange TEXT NOT NULL DEFAULT 'NASD',          -- NASD/NYSE/AMEX
+    is_integer_only BOOLEAN NOT NULL DEFAULT FALSE, -- 정수 매매만 (레버리지 ETF 등)
+    category TEXT,                                   -- bigtech/semi/leveraged/crypto/ev/ai/etf
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,          -- 활성 (모니터링 풀 포함 여부)
+    note TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_kis_us_symbols_enabled ON kis_us_symbols(enabled);
+
 -- #240: 페이지 방문자 추적 (admin 우선)
 CREATE TABLE IF NOT EXISTS page_visits (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -966,6 +981,61 @@ class Database:
                         (k, default_val, dn, desc),
                     )
                     logger.info("#285: bot_config %s=%s 추가", k, default_val)
+
+            # #293: KIS 미국 종목 풀 시드 (오늘 세션에서 선정된 후보들)
+            # SOXL만 enabled=TRUE (사용자 첫날 단타 종목), 나머지는 후보로 비활성
+            count = conn.execute("SELECT COUNT(*) FROM kis_us_symbols").fetchone()[0]
+            if count == 0:
+                _seed = [
+                    # ticker, display_name, exchange, integer_only, category, enabled, note
+                    # 빅테크
+                    ("AAPL",  "Apple",          "NASD", 0, "bigtech", 0, ""),
+                    ("MSFT",  "Microsoft",      "NASD", 0, "bigtech", 0, ""),
+                    ("GOOGL", "Alphabet",       "NASD", 0, "bigtech", 0, ""),
+                    ("AMZN",  "Amazon",         "NASD", 0, "bigtech", 0, ""),
+                    ("META",  "Meta",           "NASD", 0, "bigtech", 0, ""),
+                    # 반도체
+                    ("NVDA",  "Nvidia",         "NASD", 0, "semi",    0, ""),
+                    ("AMD",   "AMD",            "NASD", 0, "semi",    0, ""),
+                    ("TSM",   "TSMC",           "NYSE", 0, "semi",    0, ""),
+                    ("AVGO",  "Broadcom",       "NASD", 0, "semi",    0, ""),
+                    ("ASML",  "ASML",           "NASD", 0, "semi",    0, ""),
+                    ("SNDK",  "SanDisk",        "NASD", 0, "semi",    0, "2025년 WDC 분사"),
+                    # 레버리지 ETF (정수 매매)
+                    ("SOXL",  "Direxion Semi Bull 3X",        "AMEX", 1, "leveraged", 1, "기본 활성 — 첫날 단타"),
+                    ("SOXS",  "Direxion Semi Bear 3X",        "AMEX", 1, "leveraged", 0, "반도체 하락 베팅"),
+                    ("TQQQ",  "ProShares UltraPro QQQ 3X",    "AMEX", 1, "leveraged", 0, "나스닥100 3X"),
+                    ("SQQQ",  "ProShares UltraPro Short 3X",  "AMEX", 1, "leveraged", 0, "나스닥100 -3X"),
+                    ("USD",   "ProShares Ultra Semi 2X",      "AMEX", 1, "leveraged", 0, "반도체 2X"),
+                    ("TECL",  "Direxion Tech Bull 3X",        "AMEX", 1, "leveraged", 0, "기술주 3X"),
+                    ("NVDL",  "GraniteShares NVDA 2X",        "AMEX", 1, "leveraged", 0, "엔비디아 2X"),
+                    ("SNXX",  "Tradr 2X Long SNDK",           "AMEX", 1, "leveraged", 0, "SanDisk 2X"),
+                    # 크립토 노출
+                    ("COIN",  "Coinbase",       "NASD", 0, "crypto",  0, ""),
+                    ("MSTR",  "MicroStrategy",  "NASD", 0, "crypto",  0, "BTC 보유"),
+                    ("HOOD",  "Robinhood",      "NASD", 0, "crypto",  0, ""),
+                    # EV / 모빌리티
+                    ("TSLA",  "Tesla",          "NASD", 0, "ev",      0, ""),
+                    ("RIVN",  "Rivian",         "NASD", 0, "ev",      0, ""),
+                    # AI / 소프트웨어
+                    ("PLTR",  "Palantir",       "NASD", 0, "ai",      0, ""),
+                    ("ARM",   "ARM Holdings",   "NASD", 0, "ai",      0, ""),
+                    ("NFLX",  "Netflix",        "NASD", 0, "ai",      0, ""),
+                    # ETF (1X — 시장 노출용, 변동성 낮아 RSI 신호 적음)
+                    ("QQQ",   "Nasdaq 100",     "NASD", 0, "etf",     0, ""),
+                    ("SPY",   "S&P 500",        "AMEX", 0, "etf",     0, ""),
+                    ("VOO",   "Vanguard S&P 500","AMEX", 0, "etf",     0, ""),
+                    ("SOXX",  "iShares Semi",   "NASD", 0, "etf",     0, ""),
+                    ("SMH",   "VanEck Semi",    "NASD", 0, "etf",     0, ""),
+                ]
+                for row in _seed:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO kis_us_symbols "
+                        "(ticker, display_name, exchange, is_integer_only, category, enabled, note) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        row,
+                    )
+                logger.info("#293: kis_us_symbols 시드 %d종목 (SOXL 활성)", len(_seed))
 
             # 코인 카테고리별 전략 기본값
             row = conn.execute("SELECT COUNT(*) FROM coin_strategy_config").fetchone()
