@@ -154,6 +154,13 @@ class KISUSExchange(Exchange):
         # rate limit (KIS 초당 5건) 회피 + dailyprice API 부하 절감
         self._ohlcv_cache: dict[str, tuple[float, "pd.DataFrame"]] = {}
         self._ohlcv_cache_ttl_sec = 60
+        # #319: 잔고 조회 캐시 (rate limit 회피)
+        # 매 틱마다 종목별 보유량 + USD 잔고 호출 → 5+ 건 누적
+        # 잔고는 매수/매도 직후만 변경되므로 짧은 캐시 OK (30초)
+        self._balance_cache: dict[str, tuple[float, float]] = {}
+        self._balance_cache_ttl_sec = 30
+        self._present_balance_cache: tuple[float, dict] | None = None
+        self._present_balance_ttl_sec = 30
 
     # ---- 메타 ----
 
@@ -565,21 +572,33 @@ class KISUSExchange(Exchange):
         return {"NASD": "NAS", "NYSE": "NYS", "AMEX": "AMS"}.get(order_code, "NAS")
 
     def _inquire_balance(self) -> dict:
-        return self._client.get(
+        # #319: 30초 캐시 (rate limit 회피). 매수/매도 시 invalidate_balance_cache 호출.
+        import time as _time
+        cached = self._balance_cache.get("__inquire_balance__")
+        if cached and (_time.time() - cached[0]) < self._balance_cache_ttl_sec:
+            return cached[1]
+        data = self._client.get(
             "/uapi/overseas-stock/v1/trading/inquire-balance",
             tr_id=self._tr_ids["balance"],
             params={
                 "CANO": self._cano,
                 "ACNT_PRDT_CD": self._acnt_prdt_cd,
-                "OVRS_EXCG_CD": "NASD",  # 통합조회는 거래소 무관하게 동작
+                "OVRS_EXCG_CD": "NASD",
                 "TR_CRCY_CD": "USD",
                 "CTX_AREA_FK200": "",
                 "CTX_AREA_NK200": "",
             },
         )
+        self._balance_cache["__inquire_balance__"] = (_time.time(), data)
+        return data
+
+    def invalidate_balance_cache(self) -> None:
+        """매수/매도 직후 호출하여 잔고 캐시 무효화."""
+        self._balance_cache.clear()
+        self._present_balance_cache = None
 
     def _inquire_present_balance(self) -> dict:
-        """해외주식 현재잔고 조회 — 외화예수금/원화예수금/환율 포함.
+        """해외주식 현재잔고 조회 — 외화예수금/원화예수금/환율 포함. 30초 캐시 (#319).
 
         TR_ID: CTRP6504R (실전 전용. 모의 미지원).
 
@@ -595,20 +614,25 @@ class KISUSExchange(Exchange):
             * frcr_evlu_tota: 외화평가총액 (KRW 환산)
         """
         if self._is_paper:
-            # 모의는 CTRP6504R 미지원 — 빈 응답 반환
             return {"output2": [], "output3": {}}
-        return self._client.get(
+        # #319: 30초 캐시 (USD/KRW 잔고 + 환율)
+        import time as _time
+        if self._present_balance_cache and (_time.time() - self._present_balance_cache[0]) < self._present_balance_ttl_sec:
+            return self._present_balance_cache[1]
+        data = self._client.get(
             "/uapi/overseas-stock/v1/trading/inquire-present-balance",
             tr_id="CTRP6504R",
             params={
                 "CANO": self._cano,
                 "ACNT_PRDT_CD": self._acnt_prdt_cd,
-                "WCRC_FRCR_DVSN_CD": "02",  # 02=외화 기준
-                "NATN_CD": "840",            # 840=미국
+                "WCRC_FRCR_DVSN_CD": "02",
+                "NATN_CD": "840",
                 "TR_MKET_CD": "00",
                 "INQR_DVSN_CD": "00",
             },
         )
+        self._present_balance_cache = (_time.time(), data)
+        return data
 
     def get_fx_rate_krw_per_usd(self) -> float | None:
         """현재 KRW/USD 환율 (KIS 잔고 응답의 frst_bltn_exrt). 조회 실패 시 None."""
