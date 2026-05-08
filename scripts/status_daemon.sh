@@ -23,7 +23,7 @@ fi
 
 running=0
 dead=0
-for name in api bot news tunnel; do
+for name in api bot bot_kis_kr bot_kis_us news tunnel; do
     pid_file="$PIDS_DIR/$name.pid"
     log_file="$LOGS_DIR/$name.log"
 
