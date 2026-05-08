@@ -242,19 +242,20 @@ def test_build_params_thresholds_overridable(monkeypatch):
     assert p.trailing_stop_pct == -1.5
 
 
-def test_build_params_day_trading_thresholds_default(monkeypatch):
-    """단타모드 ON 시 #301 디폴트: 3X 레버리지 ETF 변동폭에 맞춰 과감하게."""
+def test_build_params_day_trading_mean_reversion_thresholds(monkeypatch):
+    """단타모드 + mean_reversion: TP +4 / SL -4 / TR -2 (#301)."""
     from cryptobot.entrypoints.run_kis_us import _build_params
 
     monkeypatch.delenv("KIS_US_TAKE_PROFIT_PCT", raising=False)
     monkeypatch.delenv("KIS_US_STOP_LOSS_PCT", raising=False)
     monkeypatch.delenv("KIS_US_TRAILING_PCT", raising=False)
     monkeypatch.setenv("KIS_US_DAY_TRADING", "true")
+    monkeypatch.setenv("KIS_US_STRATEGY", "mean_reversion")
     p = _build_params(universe_size=1)
     assert p.day_trading_mode is True
-    assert p.take_profit_pct == 4.0   # #301 익절 4%
-    assert p.stop_loss_pct == -4.0    # #301 손절 -4% (1:1 손익비)
-    assert p.trailing_stop_pct == -2.0  # #301 트레일링 -2%
+    assert p.take_profit_pct == 4.0
+    assert p.stop_loss_pct == -4.0
+    assert p.trailing_stop_pct == -2.0
 
 
 def test_build_params_swing_thresholds_default(monkeypatch):
@@ -437,3 +438,68 @@ def test_strategy_default_breakout_in_day_trading_mode():
     # 디폴트 파라미터 — orb_minutes/volume_spike 검증
     assert p.orb_minutes == 30
     assert p.volume_spike_multiplier == 2.0
+
+
+# ---- #305 Zarattini 논문 모드: OR_low 손절 + EOD 청산 ----
+
+def test_breakout_signal_includes_stop_loss_price():
+    """매수 신호에 OR_low가 stop_loss_price로 포함."""
+    from cryptobot.bot.kis_strategy import evaluate_buy_breakout, KISStrategyParams
+    df = _make_minute_df([
+        (100, 102, 99, 101, 1000),   # OR_low 99
+        (101, 103, 100, 102, 1000),
+        (102, 104, 101, 103, 1000),
+        (103, 105, 102, 104, 1000),
+        (104, 106, 103, 105, 1000),
+        (105, 107, 104, 106, 1000),  # OR_high 107
+        (106, 108, 105, 107, 3000),
+    ])
+    sig = evaluate_buy_breakout(df, current_price=108.0, bar_minutes=5,
+                                params=KISStrategyParams(orb_minutes=30, volume_spike_multiplier=2.0))
+    assert sig.should_buy is True
+    assert sig.stop_loss_price == 99.0  # OR_low
+
+
+def test_evaluate_sell_with_orb_stop_loss_price():
+    """ORB 모드: 가격이 OR_low 도달 시 손절."""
+    from cryptobot.bot.kis_strategy import evaluate_sell
+
+    # 매수 $108, OR_low $99
+    sig = evaluate_sell(
+        df=None, current_price=99.0, buy_price=108.0,
+        highest_since_buy=108.0,
+        stop_loss_price=99.0,  # OR_low
+    )
+    assert sig.should_sell is True
+    assert "OR_low" in sig.reason
+    assert sig.is_profit_taking is False
+
+
+def test_evaluate_sell_orb_no_trigger_when_above_or_low():
+    """가격이 OR_low 위면 손절 안함 (절대% 손절은 그대로 동작)."""
+    from cryptobot.bot.kis_strategy import evaluate_sell, KISStrategyParams
+
+    sig = evaluate_sell(
+        df=None, current_price=105.0, buy_price=108.0,
+        highest_since_buy=108.0,
+        stop_loss_price=99.0,
+        params=KISStrategyParams(stop_loss_pct=-99),  # 절대% 발동 안 함
+    )
+    assert sig.should_sell is False
+
+
+def test_breakout_paper_mode_thresholds(monkeypatch):
+    """단타 + breakout 모드 디폴트: TP 무한대, TR 끔, ORB 5분."""
+    from cryptobot.entrypoints.run_kis_us import _build_params
+
+    monkeypatch.delenv("KIS_US_TAKE_PROFIT_PCT", raising=False)
+    monkeypatch.delenv("KIS_US_STOP_LOSS_PCT", raising=False)
+    monkeypatch.delenv("KIS_US_TRAILING_PCT", raising=False)
+    monkeypatch.delenv("KIS_US_ORB_MINUTES", raising=False)
+    monkeypatch.setenv("KIS_US_DAY_TRADING", "true")
+    monkeypatch.setenv("KIS_US_STRATEGY", "breakout")
+    p = _build_params(universe_size=1)
+    assert p.take_profit_pct == 999.0   # 사실상 무한 (EOD 청산 처리)
+    assert p.stop_loss_pct == -4.0      # 폴백
+    assert p.trailing_stop_pct == -99.0 # 사실상 끔
+    assert p.orb_minutes == 5           # 논문 5분 ORB

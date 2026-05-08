@@ -104,21 +104,37 @@ def _parse_universe(db: "Database | None" = None) -> list[str]:
 def _build_params(universe_size: int) -> KISStrategyParams:
     """env 기반 전략 파라미터 생성.
 
-    종목당 한도는 100/N로 자동 (N=풀 크기).
-    단타모드 ON일 때 손절/익절/트레일링 디폴트:
+    종목당 한도 = 100/N (N=풀 크기).
+    디폴트는 (전략, 단타모드)에 따라 다름:
     - 스윙: TP +10% / SL -10% / TR -3%
-    - 단타: TP +4% / SL -4% / TR -2%
-      → 3X 레버리지 ETF의 일중 ±5~7% 변동폭에 맞춤. 작은 노이즈 회피.
-      → 1:1 손익 비율 (승률 50% 이상이면 +)
-    env로 명시적 오버라이드 가능 (KIS_US_TAKE_PROFIT_PCT 등).
+    - 단타 + mean_reversion: TP +4% / SL -4% / TR -2%
+    - 단타 + breakout (#305 Zarattini): TP 사실상 무한 / SL OR_low (동적) / TR 끔
+      * 손절은 OR_low (KISBuySignal.stop_loss_price)로 동적
+      * 익절/트레일링 X — EOD 청산이 처리 (force_sell_window 10분 전)
+      * 폴백 SL -4% (만약 stop_loss_price 누락 시)
+    env로 명시적 오버라이드 가능.
     """
     if universe_size <= 0:
         universe_size = 1
     is_day_trading = os.getenv("KIS_US_DAY_TRADING", "false").lower() == "true"
-    # 모드별 디폴트 — 단타는 #301 레버리지 ETF 변동폭 반영해서 과감하게
-    default_tp = "4" if is_day_trading else "10"
-    default_sl = "-4" if is_day_trading else "-10"
-    default_tr = "-2" if is_day_trading else "-3"
+    strategy = os.getenv("KIS_US_STRATEGY", "breakout" if is_day_trading else "mean_reversion").strip().lower()
+
+    if is_day_trading and strategy == "breakout":
+        # Zarattini 논문 모드 — 익절/트레일링 X (EOD 청산), ORB 5분
+        default_tp = "999"     # 사실상 무한
+        default_sl = "-4"      # 폴백 (OR_low가 우선)
+        default_tr = "-99"     # 사실상 끔
+        default_orb = "5"      # 논문 5분 ORB
+    elif is_day_trading:
+        default_tp = "4"
+        default_sl = "-4"
+        default_tr = "-2"
+        default_orb = "30"
+    else:
+        default_tp = "10"
+        default_sl = "-10"
+        default_tr = "-3"
+        default_orb = "30"
     return KISStrategyParams(
         rsi_oversold=float(os.getenv("KIS_US_RSI_OVERSOLD", "35")),
         rsi_overbought=float(os.getenv("KIS_US_RSI_OVERBOUGHT", "70")),
@@ -129,6 +145,8 @@ def _build_params(universe_size: int) -> KISStrategyParams:
         day_trading_mode=is_day_trading,
         no_buy_window_minutes_before_close=int(os.getenv("KIS_US_NO_BUY_BEFORE_CLOSE_MIN", "30")),
         force_sell_window_minutes_before_close=int(os.getenv("KIS_US_FORCE_SELL_BEFORE_CLOSE_MIN", "10")),
+        orb_minutes=int(os.getenv("KIS_US_ORB_MINUTES", default_orb)),
+        volume_spike_multiplier=float(os.getenv("KIS_US_VOLUME_SPIKE", "2.0")),
     )
 
 
@@ -180,6 +198,8 @@ class KISUSBot:
         self._last_buy_price: dict[str, float] = {}  # USD 기준
         self._highest_since_buy: dict[str, float] = {}
         self._last_sell_at: dict[str, float] = {}  # 종목별 마지막 매도 timestamp (epoch)
+        self._stop_loss_price_at_buy: dict[str, float] = {}  # #305 ORB 모드 OR_low 손절가
+        self._pending_stop_loss: float | None = None  # #305 매수 직전 OR_low 임시
 
     def start(self) -> None:
         mode = "단타(데일리)" if self._params.day_trading_mode else "스윙"
@@ -328,7 +348,9 @@ class KISUSBot:
         except APIError as e:
             logger.warning("%s OHLCV 조회 실패 (매도 판단은 단순 룰로): %s", symbol, e)
 
-        signal_ = evaluate_sell(df, price_usd, buy_price, prev_high, self._params)
+        # #305 ORB 모드: OR_low 가격 기반 손절 우선 (없으면 절대% 폴백)
+        sl_price = self._stop_loss_price_at_buy.get(symbol)
+        signal_ = evaluate_sell(df, price_usd, buy_price, prev_high, self._params, stop_loss_price=sl_price)
         if signal_.should_sell:
             pnl_pct = (price_usd - buy_price) / buy_price * 100
             logger.info(
@@ -404,8 +426,11 @@ class KISUSBot:
             except ValueError:
                 bar_min = 5
             signal_ = evaluate_buy_breakout(df_today, price_usd, bar_minutes=bar_min, params=self._params)
+            # #305 ORB 모드: 다음 _buy 호출에서 OR_low 손절가 사용하도록 임시 저장
+            self._pending_stop_loss = signal_.stop_loss_price
         else:
             signal_ = evaluate_buy(df, price_usd, self._params)
+            self._pending_stop_loss = None
 
         # 매 틱 평가 결과 DB 기록 (사용자 가시성)
         self._record_evaluation(symbol, price_usd, signal_, df=df, holds_already=False)
@@ -447,6 +472,10 @@ class KISUSBot:
 
         self._last_buy_price[symbol] = result.price
         self._highest_since_buy[symbol] = result.price
+        # #305 ORB 모드: 매수 시그널의 stop_loss_price (OR_low) 저장
+        if hasattr(self, "_pending_stop_loss") and self._pending_stop_loss is not None:
+            self._stop_loss_price_at_buy[symbol] = self._pending_stop_loss
+            self._pending_stop_loss = None
         self._recorder.record_trade(
             coin=symbol,
             market="kis_us",
@@ -489,6 +518,7 @@ class KISUSBot:
             )
         self._last_buy_price.pop(symbol, None)
         self._highest_since_buy.pop(symbol, None)
+        self._stop_loss_price_at_buy.pop(symbol, None)  # #305 OR_low 손절가 정리
         self._last_sell_at[symbol] = time.time()  # 재매수 쿨다운 기준
 
     def _on_shutdown(self, *_args) -> None:
