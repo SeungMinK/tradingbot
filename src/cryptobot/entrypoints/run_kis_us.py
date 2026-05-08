@@ -73,8 +73,22 @@ DEFAULT_US_UNIVERSE = [
 DEFAULT_TICK_INTERVAL_SEC = 30  # #295: 단타용 빠른 반응 (기존 60→30)
 
 
-def _parse_universe() -> list[str]:
-    """env KIS_US_UNIVERSE 파싱. 미설정 시 디폴트 풀."""
+def _parse_universe(db: "Database | None" = None) -> list[str]:
+    """종목 풀 결정. 우선순위: DB(kis_us_symbols.enabled) > env KIS_US_UNIVERSE > DEFAULT.
+
+    #297: DB 기반 종목 관리 — admin에서 토글하면 봇 재시작 없이 다음 틱부터 반영.
+    DB가 비어있거나 enabled 종목 0건이면 env fallback.
+    """
+    if db is not None:
+        try:
+            rows = db.execute(
+                "SELECT ticker FROM kis_us_symbols WHERE enabled = 1 ORDER BY ticker"
+            ).fetchall()
+            if rows:
+                return [dict(r)["ticker"] for r in rows]
+        except Exception:
+            pass  # DB 조회 실패 시 env로 fallback
+
     raw = os.getenv("KIS_US_UNIVERSE", "").strip()
     if not raw:
         return list(DEFAULT_US_UNIVERSE)
@@ -137,7 +151,7 @@ class KISUSBot:
             account_product_code=config.kis.account_product_code,
             is_paper=config.kis.is_paper,
         )
-        self._universe = _parse_universe()
+        self._universe = _parse_universe(self._db)  # DB 우선
         self._params = _build_params(len(self._universe))
         self._rebuy_cooldown_sec = int(os.getenv("KIS_US_REBUY_COOLDOWN_SEC", "0"))
         self._tick_interval_sec = max(15, int(os.getenv("KIS_US_TICK_INTERVAL_SEC", str(DEFAULT_TICK_INTERVAL_SEC))))
@@ -207,12 +221,21 @@ class KISUSBot:
             logger.debug("미국 정규장 외 (%s NY). 스킵", ny)
             return
 
-        # ~5분에 한 번 살아있음 핑 (사용자 가시성용)
+        # ~5분에 한 번 살아있음 핑 + DB 종목 풀 재로딩 (admin 토글 반영, #297)
         if self._tick_count % self._heartbeat_every_n_ticks == 0:
             ny = datetime.now(NY).strftime("%H:%M")
+            new_universe = _parse_universe(self._db)
+            universe_changed = new_universe != self._universe
+            if universe_changed:
+                logger.info("종목 풀 변경: %s → %s", self._universe, new_universe)
+                self._universe = new_universe
+                self._params = _build_params(len(self._universe)) if self._universe else self._params
             try:
                 usd = self._exchange.get_balance("USD")
-                logger.info("[heartbeat] tick=%d, NY %s, USD=$%.2f", self._tick_count, ny, usd)
+                logger.info(
+                    "[heartbeat] tick=%d, NY %s, USD=$%.2f, 풀=%s",
+                    self._tick_count, ny, usd, ",".join(self._universe) or "(empty)",
+                )
             except Exception:
                 logger.info("[heartbeat] tick=%d, NY %s (잔고 조회 실패)", self._tick_count, ny)
 
@@ -296,6 +319,42 @@ class KISUSBot:
         else:
             logger.debug("%s 보유 유지: %s", symbol, signal_.reason)
 
+    def _record_evaluation(
+        self,
+        symbol: str,
+        price: float,
+        signal_,
+        df=None,
+        holds_already: bool = False,
+    ) -> None:
+        """매 틱 매수 평가 결과 DB 기록 (#297-2). 사용자 가시성용."""
+        from cryptobot.bot.kis_strategy import _calc_ma, _calc_rsi
+
+        rsi = ma20 = ma60 = None
+        if df is not None:
+            try:
+                rsi = _calc_rsi(df["close"], 14)
+                ma20 = _calc_ma(df["close"], 20)
+                ma60 = _calc_ma(df["close"], 60)
+            except Exception:
+                pass
+        try:
+            self._db.execute(
+                "INSERT INTO kis_us_evaluations "
+                "(ticker, price, rsi, ma20, ma60, should_buy, reason, confidence, holds_already) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    symbol, float(price), rsi, ma20, ma60,
+                    1 if (signal_ and getattr(signal_, "should_buy", False)) else 0,
+                    getattr(signal_, "reason", "") if signal_ else "",
+                    getattr(signal_, "confidence", 0.0) if signal_ else 0.0,
+                    1 if holds_already else 0,
+                ),
+            )
+            self._db.commit()
+        except Exception as e:
+            logger.debug("evaluation 기록 실패: %s", e)
+
     def _evaluate_buy(self, symbol: str, price_usd: float) -> None:
         # 짧은 재매수 쿨다운 (옵션) — 매도 직후 노이즈 매매 회피
         if self._rebuy_cooldown_sec > 0:
@@ -315,6 +374,8 @@ class KISUSBot:
             return
 
         signal_ = evaluate_buy(df, price_usd, self._params)
+        # 매 틱 평가 결과 DB 기록 (사용자 가시성)
+        self._record_evaluation(symbol, price_usd, signal_, df=df, holds_already=False)
         if not signal_.should_buy:
             logger.debug("%s 매수 미판정: %s", symbol, signal_.reason)
             return

@@ -35,6 +35,8 @@ export default function DashboardPage() {
   const [marketCapital, setMarketCapital] = useState<any>(null);  // #277
   const [marketUniverse, setMarketUniverse] = useState<any>(null);  // #278
   const [tab, setTab] = useState<"all" | "coin" | "kis">("all");  // #287 탭
+  const [kisSymbols, setKisSymbols] = useState<any[]>([]);  // #297
+  const [kisEvals, setKisEvals] = useState<any[]>([]);  // #297-2
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(() => {
@@ -52,7 +54,9 @@ export default function DashboardPage() {
       client.get("/market-stats").then((r) => r.data).catch(() => null),
       client.get("/market-capital/status").then((r) => r.data).catch(() => null),
       client.get("/market-universe").then((r) => r.data).catch(() => null),
-    ]).then(([bal, pos, hist, mkt, trades, coins, nStats, news, llm, vs, ms, mc, mu]) => {
+      client.get("/kis-symbols").then((r) => r.data).catch(() => []),
+      client.get("/kis-symbols/evaluations?limit=20").then((r) => r.data).catch(() => []),
+    ]).then(([bal, pos, hist, mkt, trades, coins, nStats, news, llm, vs, ms, mc, mu, ks, kev]) => {
       setBalance(bal);
       setPositions(pos as PositionsResponse | null);
       setHistory(hist as BalanceHistory[]);
@@ -66,6 +70,8 @@ export default function DashboardPage() {
       setMarketStats(ms);
       setMarketCapital(mc);
       setMarketUniverse(mu);
+      setKisSymbols((ks as any[]) || []);
+      setKisEvals((kev as any[]) || []);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
@@ -494,6 +500,119 @@ export default function DashboardPage() {
           </table>
           <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
             💡 <strong>실제 잔고 (API)</strong>가 봇이 매수에 쓰는 진짜 예산. 장부값은 입출금 이력 추적용.
+          </div>
+        </div>
+      )}
+
+      {/* #297-2: KIS 봇 틱별 매수 판단 결과 (사용자 가시성) */}
+      {(tab === "all" || tab === "kis") && kisEvals.length > 0 && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>🔍 봇 매수 판단 (최근 20건)</span>
+            <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 400 }}>
+              30초마다 평가 — 매수 신호 충족하면 ✅
+            </span>
+          </div>
+          <div className="table-container" style={{ marginTop: 8 }}>
+            <table style={{ width: "100%", fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left", padding: 4 }}>시간</th>
+                  <th style={{ textAlign: "left", padding: 4 }}>종목</th>
+                  <th style={{ textAlign: "right", padding: 4 }}>가격</th>
+                  <th style={{ textAlign: "right", padding: 4 }}>RSI</th>
+                  <th style={{ textAlign: "right", padding: 4 }}>MA20</th>
+                  <th style={{ textAlign: "right", padding: 4 }}>MA60</th>
+                  <th style={{ textAlign: "center", padding: 4 }}>매수?</th>
+                  <th style={{ textAlign: "left", padding: 4 }}>사유 / 신뢰도</th>
+                </tr>
+              </thead>
+              <tbody>
+                {kisEvals.slice(0, 20).map((e: any) => (
+                  <tr key={e.id}>
+                    <td style={{ padding: 4, fontSize: 10, color: "var(--text-muted)" }}>
+                      {(e.evaluated_at || "").slice(11, 19)}
+                    </td>
+                    <td style={{ padding: 4, fontWeight: 600 }}>{e.ticker}</td>
+                    <td style={{ padding: 4, textAlign: "right" }}>
+                      {e.price != null ? `$${Number(e.price).toFixed(2)}` : "-"}
+                    </td>
+                    <td style={{
+                      padding: 4, textAlign: "right",
+                      color: e.rsi != null && e.rsi <= 35 ? "#10b981" : e.rsi != null && e.rsi >= 70 ? "#ef4444" : "var(--text-muted)",
+                      fontWeight: e.rsi != null && (e.rsi <= 35 || e.rsi >= 70) ? 700 : 400,
+                    }}>
+                      {e.rsi != null ? Number(e.rsi).toFixed(1) : "-"}
+                    </td>
+                    <td style={{ padding: 4, textAlign: "right", color: "var(--text-muted)" }}>
+                      {e.ma20 != null ? Number(e.ma20).toFixed(2) : "-"}
+                    </td>
+                    <td style={{ padding: 4, textAlign: "right", color: "var(--text-muted)" }}>
+                      {e.ma60 != null ? Number(e.ma60).toFixed(2) : "-"}
+                    </td>
+                    <td style={{ padding: 4, textAlign: "center" }}>
+                      {e.should_buy
+                        ? <span style={{ color: "#10b981", fontWeight: 700 }}>✅</span>
+                        : <span style={{ color: "var(--text-muted)" }}>-</span>}
+                    </td>
+                    <td style={{ padding: 4, fontSize: 10, color: "var(--text-secondary)" }}>
+                      {e.reason}
+                      {e.confidence > 0 ? ` (conf ${Number(e.confidence).toFixed(2)})` : ""}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-muted)" }}>
+            💡 RSI 초록(≤35) = 매수 임계 충족. 4중 조건 모두 만족해야 ✅. 미충족 사유는 "사유" 컬럼에 표시.
+          </div>
+        </div>
+      )}
+
+      {/* #297: KIS 미국주식 종목 풀 관리 */}
+      {(tab === "all" || tab === "kis") && kisSymbols.length > 0 && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>🇺🇸 KIS 미국주식 종목 풀</span>
+            <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 400 }}>
+              활성 {kisSymbols.filter((s: any) => s.enabled).length}/{kisSymbols.length}종목 — 봇 5분마다 풀 재로딩 (재시작 불요)
+            </span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 6, marginTop: 8 }}>
+            {kisSymbols.map((s: any) => (
+              <label
+                key={s.ticker}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "6px 10px", borderRadius: 6,
+                  background: s.enabled ? "rgba(74,158,255,0.12)" : "var(--bg-secondary)",
+                  border: s.enabled ? "1px solid #4a9eff" : "1px solid var(--border)",
+                  cursor: "pointer", fontSize: 12,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!s.enabled}
+                  onChange={async (e) => {
+                    await client.post("/kis-symbols/toggle", { ticker: s.ticker, enabled: e.target.checked });
+                    fetchAll();
+                  }}
+                />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600 }}>
+                    {s.ticker}
+                    {s.is_integer_only ? <span style={{ fontSize: 9, marginLeft: 4, color: "#f59e0b" }}>1주</span> : null}
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                    {s.display_name} · {s.exchange} · {s.category}
+                  </div>
+                </div>
+              </label>
+            ))}
+          </div>
+          <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
+            💡 체크하면 봇 모니터링 풀에 추가. 종목당 한도 = 100% / N (활성 종목 수). 신규 추가는 SQL/API로 (POST /api/kis-symbols).
           </div>
         </div>
       )}
