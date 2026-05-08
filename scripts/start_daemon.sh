@@ -73,7 +73,7 @@ echo -e "${GREEN}=== CryptoBot 백그라운드 시작 ===${NC}"
 echo ""
 
 # 1. API 서버
-echo -e "${CYAN}[1/4] API 서버${NC}"
+echo -e "${CYAN}[1/6] API 서버${NC}"
 start_bg "api" ".venv/bin/uvicorn cryptobot.api.main:app --host 0.0.0.0 --port 8000 --app-dir src"
 
 sleep 1
@@ -82,7 +82,7 @@ sleep 1
 # caffeinate -i: Mac 유휴 절전 차단. 절전 진입 시 APScheduler 스레드가 멈춰
 # 4h 헬스체크·hourly 등 주기 job이 misfire로 스킵되는 문제를 예방한다.
 # 봇 프로세스 종료 시 caffeinate도 같이 종료됨.
-echo -e "${CYAN}[2/4] 트레이딩 봇${NC}"
+echo -e "${CYAN}[2/6] 코인 봇 (Upbit)${NC}"
 if command -v caffeinate &> /dev/null; then
     start_bg "bot" "caffeinate -i .venv/bin/python -m cryptobot.bot.main"
 else
@@ -91,18 +91,47 @@ fi
 
 sleep 1
 
-# 3. 뉴스 수집기
-echo -e "${CYAN}[3/4] 뉴스 수집기${NC}"
+# #262: KIS API key 로드 (.env)
+KIS_KEY_SET=false
+if [[ -f "$PROJECT_ROOT/.env" ]]; then
+    KIS_APP_KEY=$(grep -E "^KIS_APP_KEY=" "$PROJECT_ROOT/.env" 2>/dev/null | cut -d= -f2- | tr -d ' "')
+    if [[ -n "$KIS_APP_KEY" ]]; then
+        KIS_KEY_SET=true
+    fi
+fi
+
+# 3. 한국주식 봇
+echo -e "${CYAN}[3/6] 한국주식 봇 (KIS)${NC}"
+if [[ "$KIS_KEY_SET" == "true" ]]; then
+    start_bg "bot_kis_kr" ".venv/bin/python -m cryptobot.entrypoints.run_kis_kr"
+else
+    echo -e "${YELLOW}  KIS_APP_KEY 미설정 — 한국주식 봇 스킵${NC}"
+fi
+
+sleep 1
+
+# 4. 미국주식 봇
+echo -e "${CYAN}[4/6] 미국주식 봇 (KIS)${NC}"
+if [[ "$KIS_KEY_SET" == "true" ]]; then
+    start_bg "bot_kis_us" ".venv/bin/python -m cryptobot.entrypoints.run_kis_us"
+else
+    echo -e "${YELLOW}  KIS_APP_KEY 미설정 — 미국주식 봇 스킵${NC}"
+fi
+
+sleep 1
+
+# 5. 뉴스 수집기
+echo -e "${CYAN}[5/6] 뉴스 수집기${NC}"
 start_bg "news" ".venv/bin/python news-collector/collector.py"
 
 sleep 1
 
-# 4. Cloudflare Tunnel (선택)
+# 6. Cloudflare Tunnel (선택)
 if command -v cloudflared &> /dev/null; then
-    echo -e "${CYAN}[4/4] Cloudflare Tunnel${NC}"
+    echo -e "${CYAN}[6/6] Cloudflare Tunnel${NC}"
     start_bg "tunnel" "cloudflared tunnel run cryptobot-api"
 else
-    echo -e "${YELLOW}[4/4] cloudflared 미설치 — 터널 스킵${NC}"
+    echo -e "${YELLOW}[6/6] cloudflared 미설치 — 터널 스킵${NC}"
 fi
 
 echo ""
