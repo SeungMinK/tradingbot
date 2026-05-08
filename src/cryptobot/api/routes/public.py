@@ -95,7 +95,8 @@ def get_public_trades(request: Request, limit: int = Query(20, ge=1, le=100)):
     db = get_db()
     rows = db.execute(
         """
-        SELECT coin, side, strategy, trigger_reason, profit_pct,
+        SELECT coin, COALESCE(market, 'upbit') AS market,
+            side, strategy, trigger_reason, profit_pct,
             price, timestamp, hold_duration_minutes
         FROM trades
         ORDER BY id DESC LIMIT ?
@@ -106,6 +107,7 @@ def get_public_trades(request: Request, limit: int = Query(20, ge=1, le=100)):
     return [
         {
             "coin": dict(r)["coin"],
+            "market": dict(r)["market"],
             "side": dict(r)["side"],
             "strategy": dict(r)["strategy"],
             "trigger_reason": dict(r)["trigger_reason"],
@@ -318,6 +320,44 @@ def get_public_monitoring_coins(request: Request):
         }
         for r in rows
     ]
+
+
+@router.get("/market-stats")
+def get_public_market_stats(request: Request):
+    """#272: 시장별(upbit/kis_kr/kis_us) 매매 통계 (public, KRW 비공개).
+
+    승률·평균 수익률·매매 건수만 표시. 손익 KRW는 admin 전용.
+    """
+    if not _check_rate_limit(request):
+        return JSONResponse(status_code=429, content={"detail": "Too many requests"})
+
+    db = get_db()
+    rows = db.execute(
+        """
+        SELECT COALESCE(market, 'upbit') AS market,
+               SUM(CASE WHEN side='buy' THEN 1 ELSE 0 END) AS buys,
+               SUM(CASE WHEN side='sell' THEN 1 ELSE 0 END) AS sells,
+               SUM(CASE WHEN side='sell' AND profit_pct > 0 THEN 1 ELSE 0 END) AS wins,
+               SUM(CASE WHEN side='sell' AND profit_pct <= 0 THEN 1 ELSE 0 END) AS losses,
+               COALESCE(AVG(CASE WHEN side='sell' THEN profit_pct END), 0) AS avg_profit_pct
+        FROM trades GROUP BY market
+        """
+    ).fetchall()
+    items = []
+    for r in rows:
+        d = dict(r)
+        sells = d.get("sells", 0) or 0
+        wins = d.get("wins", 0) or 0
+        items.append({
+            "market": d["market"],
+            "buys": d.get("buys", 0) or 0,
+            "sells": sells,
+            "wins": wins,
+            "losses": d.get("losses", 0) or 0,
+            "win_rate": round(wins / sells * 100, 1) if sells else 0,
+            "avg_profit_pct": round(d.get("avg_profit_pct", 0) or 0, 2),
+        })
+    return {"markets": items}
 
 
 @router.post("/visit")
