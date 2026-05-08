@@ -270,21 +270,37 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {recentTrades.map((t) => (
-                    <tr key={t.id}>
-                      <td style={{ fontSize: 10 }}>{formatDateTime(t.timestamp).replace(/\d{4}\. /, "").replace(/:(\d{2})$/, "")}</td>
-                      <td style={{ fontSize: 12 }}>{t.coin?.replace("KRW-", "")}</td>
-                      <td>
-                        <span className={`badge ${t.side === "buy" ? "badge-green" : "badge-red"}`} style={{ fontSize: 10 }}>
-                          {t.side === "buy" ? "매수" : "매도"}
-                        </span>
-                      </td>
-                      <td style={{ fontSize: 11 }}>{formatKRW(t.total_krw)}</td>
-                      <td style={{ fontSize: 10, color: "var(--text-muted)", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {t.trigger_reason || "-"}
-                      </td>
-                    </tr>
-                  ))}
+                  {recentTrades.map((t: any) => {
+                    const isKis = t.market === "kis_us" || t.market === "kis_kr";
+                    const marketIcon = t.market === "kis_us" ? "🇺🇸" : t.market === "kis_kr" ? "🇰🇷" : "🪙";
+                    return (
+                      <tr key={t.id}>
+                        <td style={{ fontSize: 10 }}>{formatDateTime(t.timestamp).replace(/\d{4}\. /, "").replace(/:(\d{2})$/, "")}</td>
+                        <td style={{ fontSize: 12 }}>
+                          <span style={{ marginRight: 4, fontSize: 10 }}>{marketIcon}</span>
+                          {t.coin?.replace("KRW-", "")}
+                        </td>
+                        <td>
+                          <span className={`badge ${t.side === "buy" ? "badge-green" : "badge-red"}`} style={{ fontSize: 10 }}>
+                            {t.side === "buy" ? "매수" : "매도"}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: 11 }}>
+                          {isKis && t.price
+                            ? `$${Number(t.price).toFixed(2)}`
+                            : formatKRW(t.total_krw)}
+                          {t.profit_pct != null && (
+                            <span className={t.profit_pct > 0 ? "positive" : "negative"} style={{ marginLeft: 4, fontSize: 10 }}>
+                              ({t.profit_pct > 0 ? "+" : ""}{t.profit_pct.toFixed(2)}%)
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ fontSize: 10, color: "var(--text-muted)", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {t.trigger_reason || "-"}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
