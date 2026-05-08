@@ -49,7 +49,7 @@ from cryptobot.data.database import Database
 from cryptobot.data.recorder import DataRecorder
 from cryptobot.exceptions import APIError, ConfigError
 from cryptobot.exchange.kis.auth import KISTokenManager
-from cryptobot.exchange.kis_us import KISUSExchange
+from cryptobot.exchange.kis_us import INTEGER_ONLY_TICKERS, KISUSExchange
 from cryptobot.logging_config import setup_logging
 from cryptobot.notifier.slack import SlackNotifier
 
@@ -308,10 +308,12 @@ class KISUSBot:
         except APIError as e:
             logger.warning("USD 예수금 조회 실패 — 매수 스킵: %s", e)
             return
+        # 매매단위 1주 종목(레버리지 ETF 등)은 fractional=False로 정수 매수만
+        is_fractional = symbol not in INTEGER_ONLY_TICKERS
         qty, size_reason = calc_position_size(
             available_budget=budget_usd,
             current_price=price_usd,
-            fractional=True,
+            fractional=is_fractional,
             params=self._params,
         )
         if qty <= 0:
