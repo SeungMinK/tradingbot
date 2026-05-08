@@ -150,17 +150,15 @@ class KISUSExchange(Exchange):
         self._acnt_prdt_cd = account_product_code
         self._tr_ids = TR_ID_PAPER if is_paper else TR_ID_REAL
         self._is_paper = is_paper
-        # #297: OHLCV 캐시 — 일봉 RSI/MA는 일중 자주 안 바뀌니 60초 캐시
-        # rate limit (KIS 초당 5건) 회피 + dailyprice API 부하 절감
+        # #326: OHLCV 캐시 강화 — 분봉 endpoint rate limit 빈번
+        # 5분봉은 5분마다 새 봉 → 캐시 4분(240초)이면 호출 빈도 1/4 수준
         self._ohlcv_cache: dict[str, tuple[float, "pd.DataFrame"]] = {}
-        self._ohlcv_cache_ttl_sec = 60
-        # #319: 잔고 조회 캐시 (rate limit 회피)
-        # 매 틱마다 종목별 보유량 + USD 잔고 호출 → 5+ 건 누적
-        # 잔고는 매수/매도 직후만 변경되므로 짧은 캐시 OK (30초)
+        self._ohlcv_cache_ttl_sec = 240
+        # 잔고 캐시 30→60초 (매수/매도 직후 invalidate되므로 안전)
         self._balance_cache: dict[str, tuple[float, float]] = {}
-        self._balance_cache_ttl_sec = 30
+        self._balance_cache_ttl_sec = 60
         self._present_balance_cache: tuple[float, dict] | None = None
-        self._present_balance_ttl_sec = 30
+        self._present_balance_ttl_sec = 60
 
     # ---- 메타 ----
 
@@ -261,7 +259,9 @@ class KISUSExchange(Exchange):
         if interval != "day":
             try:
                 mins = int(interval.replace("min", ""))
-                ttl = max(20, mins * 30)  # 분봉은 N분의 절반(=30초×N) TTL
+                # #326: 분봉은 N분 - 30초 (다음 봉 나오기 30초 전까지 캐시)
+                # 5분봉 → 270초, 15분봉 → 870초. rate limit 회피 + 신선도 균형
+                ttl = max(60, mins * 60 - 30)
             except ValueError:
                 pass
         if cached and (_time.time() - cached[0]) < ttl:
