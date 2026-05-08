@@ -53,10 +53,36 @@ def _record_sell(db, market: str, profit_krw: float, buy_id: int):
 
 
 def test_initial_budget_equals_seed(db):
-    """거래 없으면 가용 예산 = 시드."""
+    """거래 없으면 가용 예산 = 시드 (환경변수 fallback, market_capital_deposits 비었을 때)."""
     from cryptobot.bot.market_budget import get_available_budget
     assert get_available_budget(db, "kis_kr") == 200000.0
     assert get_available_budget(db, "kis_us") == 200000.0
+
+
+def test_db_capital_overrides_env(db):
+    """#276: market_capital_deposits에 한 건이라도 있으면 환경변수 무시."""
+    from cryptobot.bot.market_budget import get_available_budget
+    db.execute(
+        "INSERT INTO market_capital_deposits (market, amount_krw, source, note) "
+        "VALUES ('kis_kr', 500000, 'initial', 'manual seed')"
+    )
+    db.commit()
+    # env 20만이지만 DB 50만 우선
+    assert get_available_budget(db, "kis_kr") == 500000.0
+
+
+def test_db_capital_supports_withdrawal(db):
+    """음수 amount = 출금."""
+    from cryptobot.bot.market_budget import get_available_budget
+    db.execute(
+        "INSERT INTO market_capital_deposits (market, amount_krw, source) VALUES ('kis_kr', 200000, 'initial')"
+    )
+    db.execute(
+        "INSERT INTO market_capital_deposits (market, amount_krw, source, note) "
+        "VALUES ('kis_kr', -50000, 'manual', '출금')"
+    )
+    db.commit()
+    assert get_available_budget(db, "kis_kr") == 150000.0
 
 
 def test_held_position_reduces_available(db):
