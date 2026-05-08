@@ -60,6 +60,7 @@ export interface TradeFiltersState {
   coin: string;
   side: string;
   strategy: string;
+  market: string;  // #266 시장 필터 — '' (전체) / 'upbit' / 'kis_kr' / 'kis_us'
   date_from: string;
   date_to: string;
 }

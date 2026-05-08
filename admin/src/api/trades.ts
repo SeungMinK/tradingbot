@@ -7,6 +7,7 @@ export interface TradeQueryParams {
   coin?: string;
   strategy?: string;
   side?: string;
+  market?: string;  // #266
   date_from?: string;
   date_to?: string;
 }

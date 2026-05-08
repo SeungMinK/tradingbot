@@ -50,7 +50,7 @@ export default function TradesPage() {
   const [stats, setStats] = useState<TradeStats | null>(null);
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<TradeFiltersState>({
-    coin: "", side: "", strategy: "", date_from: "", date_to: "",
+    coin: "", side: "", strategy: "", market: "", date_from: "", date_to: "",
   });
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,6 +64,7 @@ export default function TradesPage() {
         coin: filters.coin || undefined,
         side: filters.side || undefined,
         strategy: filters.strategy || undefined,
+        market: filters.market || undefined,
         date_from: filters.date_from || undefined,
         date_to: filters.date_to || undefined,
       });
@@ -121,6 +122,15 @@ export default function TradesPage() {
         <div className="filter-group">
           <label>기간 (종료)</label>
           <input type="date" value={filters.date_to} onChange={(e) => handleFilterChange("date_to", e.target.value)} />
+        </div>
+        <div className="filter-group">
+          <label>시장</label>
+          <select value={filters.market} onChange={(e) => handleFilterChange("market", e.target.value)}>
+            <option value="">전체</option>
+            <option value="upbit">🪙 코인 (Upbit)</option>
+            <option value="kis_kr">🇰🇷 한국주식</option>
+            <option value="kis_us">🇺🇸 미국주식</option>
+          </select>
         </div>
         <div className="filter-group">
           <label>방향</label>

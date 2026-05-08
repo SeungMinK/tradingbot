@@ -115,7 +115,7 @@
 ### 설치
 
 ```bash
-git clone https://github.com/SeungMinK/cryptobot.git
+git clone https://github.com/SeungMinK/tradingbot.git
 cd cryptobot
 
 python3 -m venv .venv && source .venv/bin/activate

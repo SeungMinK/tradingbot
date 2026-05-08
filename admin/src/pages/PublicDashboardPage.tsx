@@ -607,7 +607,7 @@ export default function PublicDashboardPage() {
       </div>
 
       {/* GitHub 배너 */}
-      <a href="https://github.com/SeungMinK/cryptobot" target="_blank" rel="noopener noreferrer" style={{
+      <a href="https://github.com/SeungMinK/tradingbot" target="_blank" rel="noopener noreferrer" style={{
         display: "block", marginBottom: 24, padding: "18px 24px", borderRadius: 12,
         background: "linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #312e81 100%)",
         color: "#ffffff", textDecoration: "none",
