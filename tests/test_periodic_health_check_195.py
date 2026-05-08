@@ -179,7 +179,7 @@ def test_run_periodic_sends_slack(db):
     sent_msg = notifier.send.call_args[0][0]
     # 포맷 검증 (#197 가독성 개선 반영)
     assert "시스템 상태 체크" in sent_msg
-    assert "BOT" in sent_msg
+    assert "코인 봇" in sent_msg  # #267: 'BOT' → '코인 봇 (Upbit)' 라벨 변경
     assert "API" in sent_msg
     assert "NEWS" in sent_msg
     assert "신호 — 최근 1h" in sent_msg
