@@ -84,8 +84,8 @@ def test_unauthorized(client):
 def test_get_strategies(client, auth_header):
     response = client.get("/api/strategies", headers=auth_header)
     assert response.status_code == 200
-    # #226: long_term_swing 추가로 11개
-    assert len(response.json()) == 11
+    # #321: vwap_orb_breakout 추가로 12개
+    assert len(response.json()) == 12
 
 
 def test_get_active_strategies(client, auth_header):

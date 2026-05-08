@@ -30,6 +30,8 @@ SWEEP_CONFIGS: dict[str, dict[str, list]] = {
     "bb_rsi_combined": {"rsi_oversold": [25, 30, 35], "bb_std": [1.5, 2.0]},
     # #226: 진입 임계값(공포지수, RSI) 두 축으로 sweep
     "long_term_swing": {"fear_threshold": [25, 30, 35], "rsi_entry_max": [40, 45, 50]},
+    # #321: ORB 시간 + 거래량 임계 sweep
+    "vwap_orb_breakout": {"orb_minutes": [60, 90], "volume_spike_multiplier": [1.5, 2.0]},
 }
 
 
