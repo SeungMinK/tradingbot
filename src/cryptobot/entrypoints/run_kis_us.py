@@ -101,18 +101,20 @@ def _build_params(universe_size: int) -> KISStrategyParams:
     """env 기반 전략 파라미터 생성.
 
     종목당 한도는 100/N로 자동 (N=풀 크기).
-    단타모드 ON일 때 손절/익절/트레일링 디폴트가 자동으로 단타용으로 좁아짐:
+    단타모드 ON일 때 손절/익절/트레일링 디폴트:
     - 스윙: TP +10% / SL -10% / TR -3%
-    - 단타: TP +2.5% / SL -1.5% / TR -1.0% (하루 안에 발동 가능한 폭)
+    - 단타: TP +4% / SL -4% / TR -2%
+      → 3X 레버리지 ETF의 일중 ±5~7% 변동폭에 맞춤. 작은 노이즈 회피.
+      → 1:1 손익 비율 (승률 50% 이상이면 +)
     env로 명시적 오버라이드 가능 (KIS_US_TAKE_PROFIT_PCT 등).
     """
     if universe_size <= 0:
         universe_size = 1
     is_day_trading = os.getenv("KIS_US_DAY_TRADING", "false").lower() == "true"
-    # 모드별 디폴트
-    default_tp = "2.5" if is_day_trading else "10"
-    default_sl = "-1.5" if is_day_trading else "-10"
-    default_tr = "-1.0" if is_day_trading else "-3"
+    # 모드별 디폴트 — 단타는 #301 레버리지 ETF 변동폭 반영해서 과감하게
+    default_tp = "4" if is_day_trading else "10"
+    default_sl = "-4" if is_day_trading else "-10"
+    default_tr = "-2" if is_day_trading else "-3"
     return KISStrategyParams(
         rsi_oversold=float(os.getenv("KIS_US_RSI_OVERSOLD", "35")),
         rsi_overbought=float(os.getenv("KIS_US_RSI_OVERBOUGHT", "70")),
