@@ -1,5 +1,5 @@
 #!/bin/bash
-# CryptoBot 백그라운드 실행 — 터미널 닫아도 계속 돌아감.
+# TradingBot 백그라운드 실행 — 터미널 닫아도 계속 돌아감.
 #
 # 사용법:
 #   bash scripts/start_daemon.sh        # 시작
@@ -69,7 +69,7 @@ start_bg() {
     return 0
 }
 
-echo -e "${GREEN}=== CryptoBot 백그라운드 시작 ===${NC}"
+echo -e "${GREEN}=== TradingBot 백그라운드 시작 ===${NC}"
 echo ""
 
 # 1. API 서버

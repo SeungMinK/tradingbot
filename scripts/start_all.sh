@@ -1,5 +1,5 @@
 #!/bin/bash
-# CryptoBot 전체 실행 스크립트 (봇 + API 서버 + Admin 웹)
+# TradingBot 전체 실행 스크립트 (봇 + API 서버 + Admin 웹)
 # 사용법: bash scripts/start_all.sh
 # 종료: Ctrl+C (전체 프로세스 종료)
 
@@ -14,7 +14,7 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-echo -e "${GREEN}=== CryptoBot 전체 시작 ===${NC}"
+echo -e "${GREEN}=== TradingBot 전체 시작 ===${NC}"
 echo ""
 
 # 종료 시 모든 자식 프로세스 정리

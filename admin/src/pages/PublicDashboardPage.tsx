@@ -163,10 +163,10 @@ export default function PublicDashboardPage() {
       {/* #239: 상단 헤더 — 로고 + 봇 이름 + 운영 상태 배지 */}
       <div className="public-header">
         <div className="public-header-brand">
-          <div className="public-header-logo">C</div>
+          <div className="public-header-logo">T</div>
           <div>
-            <div className="public-header-name">CryptoBot</div>
-            <div className="public-header-tag">업비트 자동매매 · {operatingDays}일째 운영</div>
+            <div className="public-header-name">TradingBot</div>
+            <div className="public-header-tag">코인 + 주식 자동매매 · {operatingDays}일째 운영</div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
