@@ -104,7 +104,7 @@ def _parse_universe(db: "Database | None" = None) -> list[str]:
 def _build_params(universe_size: int) -> KISStrategyParams:
     """env 기반 전략 파라미터 생성.
 
-    종목당 한도 = 100/N (N=풀 크기).
+    #309: 종목당 한도 = 100% (풀매수). 여러 종목 활성화 시 신뢰도 정렬로 순차 매수.
     디폴트는 (전략, 단타모드)에 따라 다름:
     - 스윙: TP +10% / SL -10% / TR -3%
     - 단타 + mean_reversion: TP +4% / SL -4% / TR -2%
@@ -141,7 +141,7 @@ def _build_params(universe_size: int) -> KISStrategyParams:
         take_profit_pct=float(os.getenv("KIS_US_TAKE_PROFIT_PCT", default_tp)),
         stop_loss_pct=float(os.getenv("KIS_US_STOP_LOSS_PCT", default_sl)),
         trailing_stop_pct=float(os.getenv("KIS_US_TRAILING_PCT", default_tr)),
-        max_position_per_symbol_pct=100.0 / universe_size,
+        max_position_per_symbol_pct=100.0,  # #309: 종목당 풀매수. 여러 종목은 신뢰도 정렬로 순차
         day_trading_mode=is_day_trading,
         no_buy_window_minutes_before_close=int(os.getenv("KIS_US_NO_BUY_BEFORE_CLOSE_MIN", "30")),
         force_sell_window_minutes_before_close=int(os.getenv("KIS_US_FORCE_SELL_BEFORE_CLOSE_MIN", "10")),
@@ -280,13 +280,28 @@ class KISUSBot:
             except Exception:
                 logger.info("[heartbeat] tick=%d, NY %s (잔고 조회 실패)", self._tick_count, ny)
 
+        # #309: 매수 후보 수집 → 신뢰도 정렬 → 자금 가능한 만큼 순차 매수
+        # 보유 종목은 즉시 매도 평가 (분기 차단으로 매수와 충돌 X)
+        buy_candidates: list[tuple[str, float, object, float | None]] = []  # (symbol, price, signal, sl_price)
         for symbol in self._universe:
             try:
-                self._evaluate_symbol(symbol)
+                price = self._exchange.get_current_price(symbol)
+                holdings = self._exchange.get_balance(symbol)
+                if holdings > 0:
+                    self._evaluate_sell_with_price(symbol, price)
+                else:
+                    sig, sl = self._evaluate_buy_only(symbol, price)
+                    if sig and getattr(sig, "should_buy", False):
+                        buy_candidates.append((symbol, price, sig, sl))
             except APIError as e:
                 logger.warning("%s 평가 실패: %s", symbol, e)
             except Exception as e:
                 logger.exception("%s 평가 중 예외: %s", symbol, e)
+
+        # 매수 후보 신뢰도 내림차순 → 자금 0될 때까지 순차 매수
+        if buy_candidates:
+            buy_candidates.sort(key=lambda x: getattr(x[2], "confidence", 0.0), reverse=True)
+            self._execute_buy_queue(buy_candidates)
 
     def _minutes_to_close(self) -> float:
         """미국 정규장 마감까지 분. 음수면 이미 마감."""
@@ -300,36 +315,6 @@ class KISUSBot:
         if ny_now > close_dt:
             return -1.0
         return (close_dt - ny_now).total_seconds() / 60.0
-
-    def _evaluate_symbol(self, symbol: str) -> None:
-        price_usd = self._exchange.get_current_price(symbol)
-        holdings = self._exchange.get_balance(symbol)
-
-        if holdings > 0:
-            # 단타모드: 마감 임박 강제 청산 (가격/룰 무관 시장가 매도)
-            if self._params.day_trading_mode:
-                mins = self._minutes_to_close()
-                if 0 <= mins <= self._params.force_sell_window_minutes_before_close:
-                    buy_price = self._last_buy_price.get(symbol, price_usd)
-                    pnl_pct = (price_usd - buy_price) / buy_price * 100 if buy_price > 0 else 0.0
-                    logger.info(
-                        "[데일리 강제청산] %s @ $%.2f (%.2f%%, 마감 %.0f분 전)",
-                        symbol, price_usd, pnl_pct, mins,
-                    )
-                    self._sell(symbol, "day_trading_close", pnl_pct)
-                    return
-            self._evaluate_sell(symbol, price_usd)
-        else:
-            # 단타모드: 마감 임박 매수 금지 (남은 시간으로 익절·손절 발동 어려움)
-            if self._params.day_trading_mode:
-                mins = self._minutes_to_close()
-                if 0 <= mins <= self._params.no_buy_window_minutes_before_close:
-                    logger.debug(
-                        "%s 마감 임박 매수금지 (%.0f분 남음, 임계 %d분)",
-                        symbol, mins, self._params.no_buy_window_minutes_before_close,
-                    )
-                    return
-            self._evaluate_buy(symbol, price_usd)
 
     def _evaluate_sell(self, symbol: str, price_usd: float) -> None:
         buy_price = self._last_buy_price.get(symbol)
@@ -398,7 +383,22 @@ class KISUSBot:
         except Exception as e:
             logger.debug("evaluation 기록 실패: %s", e)
 
-    def _evaluate_buy(self, symbol: str, price_usd: float) -> None:
+    def _evaluate_buy_only(self, symbol: str, price_usd: float):
+        """#309: 매수 평가만 (실 매수 X). 신호 + OR_low 손절가 반환.
+
+        Returns:
+            (signal, stop_loss_price). 매수 미충족/스킵 시 (None, None).
+        """
+        # 단타 매수 금지 윈도우 (마감 30분 전부터)
+        if self._params.day_trading_mode:
+            mins = self._minutes_to_close()
+            if 0 <= mins <= self._params.no_buy_window_minutes_before_close:
+                logger.debug(
+                    "%s 마감 임박 매수금지 (%.0f분 남음, 임계 %d분)",
+                    symbol, mins, self._params.no_buy_window_minutes_before_close,
+                )
+                return None, None
+
         # 짧은 재매수 쿨다운 (옵션) — 매도 직후 노이즈 매매 회피
         if self._rebuy_cooldown_sec > 0:
             last_sell_ts = self._last_sell_at.get(symbol, 0.0)
@@ -408,17 +408,16 @@ class KISUSBot:
                     "%s 재매수 쿨다운 (%ds 중 %ds 경과)",
                     symbol, self._rebuy_cooldown_sec, int(elapsed),
                 )
-                return
+                return None, None
 
         try:
             df = self._exchange.get_ohlcv(symbol, interval=self._ohlcv_interval, count=80)
         except APIError as e:
             logger.warning("%s OHLCV 조회 실패 — 매수 판단 스킵: %s", symbol, e)
-            return
+            return None, None
 
         # #303 전략 분기 — breakout (VWAP+ORB+거래량) vs mean_reversion (RSI)
         if self._strategy == "breakout":
-            # 오늘 봉만 필터 (NY 09:30 이후) — VWAP/ORB는 당일 데이터 사용
             ny_today = datetime.now(NY).date()
             df_today = df[df.index.date == ny_today] if hasattr(df.index, "date") else df
             try:
@@ -426,43 +425,71 @@ class KISUSBot:
             except ValueError:
                 bar_min = 5
             signal_ = evaluate_buy_breakout(df_today, price_usd, bar_minutes=bar_min, params=self._params)
-            # #305 ORB 모드: 다음 _buy 호출에서 OR_low 손절가 사용하도록 임시 저장
-            self._pending_stop_loss = signal_.stop_loss_price
+            sl_price = signal_.stop_loss_price
         else:
             signal_ = evaluate_buy(df, price_usd, self._params)
-            self._pending_stop_loss = None
+            sl_price = None
 
         # 매 틱 평가 결과 DB 기록 (사용자 가시성)
         self._record_evaluation(symbol, price_usd, signal_, df=df, holds_already=False)
         if not signal_.should_buy:
             logger.debug("%s 매수 미판정: %s", symbol, signal_.reason)
-            return
+            return signal_, None
 
+        return signal_, sl_price
+
+    def _execute_buy_queue(self, candidates: list) -> None:
+        """#309: 매수 후보 신뢰도 정렬 후 순차 매수. 자금 부족하면 다음 후보 skip."""
         try:
             budget_usd = self._exchange.get_balance("USD")
         except APIError as e:
-            logger.warning("USD 예수금 조회 실패 — 매수 스킵: %s", e)
-            return
-        # 매매단위 1주 종목(레버리지 ETF 등)은 fractional=False로 정수 매수만
-        is_fractional = symbol not in INTEGER_ONLY_TICKERS
-        qty, size_reason = calc_position_size(
-            available_budget=budget_usd,
-            current_price=price_usd,
-            fractional=is_fractional,
-            params=self._params,
-        )
-        if qty <= 0:
-            logger.info(
-                "%s 매수 신호이나 사이즈 0 ($%.2f USD, %s) — 스킵",
-                symbol, budget_usd, size_reason,
-            )
+            logger.warning("USD 예수금 조회 실패 — 매수 큐 스킵: %s", e)
             return
 
-        logger.info(
-            "[매수신호] %s @ $%.2f — %s | conf=%.2f | %s",
-            symbol, price_usd, signal_.reason, signal_.confidence, size_reason,
-        )
-        self._buy(symbol, qty, price_usd, signal_.reason)
+        for symbol, price_usd, sig, sl_price in candidates:
+            if budget_usd <= 0:
+                logger.info("USD 잔고 0 — 남은 후보 %d건 매수 스킵", len([c for c in candidates if c[0] != symbol]))
+                break
+
+            is_fractional = symbol not in INTEGER_ONLY_TICKERS
+            qty, size_reason = calc_position_size(
+                available_budget=budget_usd,
+                current_price=price_usd,
+                fractional=is_fractional,
+                params=self._params,
+            )
+            if qty <= 0:
+                logger.info(
+                    "%s 매수 신호 conf=%.2f 이나 사이즈 0 ($%.2f, %s) — 스킵",
+                    symbol, sig.confidence, budget_usd, size_reason,
+                )
+                continue
+
+            logger.info(
+                "[매수실행] %s conf=%.2f @ $%.2f — %s | %s",
+                symbol, sig.confidence, price_usd, sig.reason, size_reason,
+            )
+            self._pending_stop_loss = sl_price
+            self._buy(symbol, qty, price_usd, sig.reason)
+            # 매수 후 잔고 차감 (실 잔고 다음 호출 시 반영, 캐시값은 추정)
+            cost = qty * price_usd
+            budget_usd = max(0.0, budget_usd - cost)
+
+    def _evaluate_sell_with_price(self, symbol: str, price_usd: float) -> None:
+        """#309: _evaluate_symbol 매도 분기 추출 (price 외부 주입)."""
+        # 단타 강제청산 윈도우
+        if self._params.day_trading_mode:
+            mins = self._minutes_to_close()
+            if 0 <= mins <= self._params.force_sell_window_minutes_before_close:
+                buy_price = self._last_buy_price.get(symbol, price_usd)
+                pnl_pct = (price_usd - buy_price) / buy_price * 100 if buy_price > 0 else 0.0
+                logger.info(
+                    "[데일리 강제청산] %s @ $%.2f (%.2f%%, 마감 %.0f분 전)",
+                    symbol, price_usd, pnl_pct, mins,
+                )
+                self._sell(symbol, "day_trading_close", pnl_pct)
+                return
+        self._evaluate_sell(symbol, price_usd)
 
     def _buy(self, symbol: str, qty: float, price_usd: float, reason: str) -> None:
         result = self._exchange.buy_market(symbol, qty)
