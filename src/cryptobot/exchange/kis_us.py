@@ -395,6 +395,14 @@ class KISUSExchange(Exchange):
             )
 
         excd = self._exchange_code(symbol)
+        # #317: KIS 미국주식은 시장가 주문 코드 없음 (00=지정가만).
+        # OVRS_ORD_UNPR=0 보내면 "MCA 전문바디 구성 중 오류" 에러.
+        # 시장가 효과 위해 현재가 +0.5% 버퍼로 지정가 주문 (체결 보장).
+        try:
+            cur_price = self.get_current_price(symbol)
+        except APIError:
+            raise
+        order_price = round(cur_price * 1.005, 2)  # +0.5% 슬리피지 버퍼
         try:
             data = self._client.post(
                 "/uapi/overseas-stock/v1/trading/order",
@@ -405,9 +413,9 @@ class KISUSExchange(Exchange):
                     "OVRS_EXCG_CD": excd,
                     "PDNO": symbol,
                     "ORD_QTY": str(amount),
-                    "OVRS_ORD_UNPR": "0",
+                    "OVRS_ORD_UNPR": str(order_price),  # 현재가 +0.5% 지정가
                     "ORD_SVR_DVSN_CD": "0",
-                    "ORD_DVSN": "00",  # 00=지정가/시장가 (미국은 시장가가 별도 코드 없음)
+                    "ORD_DVSN": "00",  # 00=지정가
                 },
             )
         except APIError:
@@ -418,7 +426,7 @@ class KISUSExchange(Exchange):
         output = data.get("output", {})
         order_no = output.get("ODNO")
 
-        usd_price = self.get_current_price(symbol)
+        usd_price = cur_price  # 위에서 조회한 가격 재사용 (rate limit 회피)
         usd_total = usd_price * amount
         # 환율은 통합증거금 사용 시 KIS 자동환전 — 추정용 기본 1,380 KRW/USD
         # 정확한 환율은 잔고 조회로 별도 reconcile (TODO)
@@ -462,6 +470,12 @@ class KISUSExchange(Exchange):
             )
 
         excd = self._exchange_code(symbol)
+        # #317: 매도도 시장가 코드 없음 → 현재가 -0.5% 버퍼 지정가 (체결 보장)
+        try:
+            cur_price = self.get_current_price(symbol)
+        except APIError:
+            raise
+        order_price = round(cur_price * 0.995, 2)  # -0.5% 슬리피지 버퍼
         try:
             data = self._client.post(
                 "/uapi/overseas-stock/v1/trading/order",
@@ -472,7 +486,7 @@ class KISUSExchange(Exchange):
                     "OVRS_EXCG_CD": excd,
                     "PDNO": symbol,
                     "ORD_QTY": str(amount),
-                    "OVRS_ORD_UNPR": "0",
+                    "OVRS_ORD_UNPR": str(order_price),  # 현재가 -0.5% 지정가
                     "ORD_SVR_DVSN_CD": "0",
                     "ORD_DVSN": "00",
                 },
