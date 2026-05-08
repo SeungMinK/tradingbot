@@ -137,15 +137,16 @@ class DataCollector:
         cursor = self._db.execute(
             """
             INSERT INTO market_snapshots (
-                timestamp, coin, price, open_24h, high_24h, low_24h,
+                timestamp, coin, market, price, open_24h, high_24h, low_24h,
                 change_pct_24h, volume_24h, rsi_14,
                 ma_5, ma_20, ma_60,
                 bb_upper, bb_lower, atr_14, market_state
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data["timestamp"],
                 data["coin"],
+                data.get("market", "upbit"),
                 data["price"],
                 data["open_24h"],
                 data["high_24h"],
@@ -185,6 +186,7 @@ class DataCollector:
             rows.append(
                 (
                     self._coin,
+                    "upbit",
                     date_str,
                     row["open"],
                     row["high"],
@@ -197,8 +199,8 @@ class DataCollector:
 
         self._db.executemany(
             """
-            INSERT OR REPLACE INTO ohlcv_daily (coin, date, open, high, low, close, volume, collected_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO ohlcv_daily (coin, market, date, open, high, low, close, volume, collected_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             rows,
         )
@@ -233,14 +235,14 @@ class DataCollector:
         rows = []
         for idx, row in df.iterrows():
             ts_str = idx.strftime("%Y-%m-%d %H:%M:%S") if hasattr(idx, "strftime") else str(idx)
-            rows.append((self._coin, interval_min, ts_str, row["open"], row["high"],
+            rows.append((self._coin, "upbit", interval_min, ts_str, row["open"], row["high"],
                         row["low"], row["close"], row["volume"], now_str))
 
         self._db.executemany(
             """
             INSERT OR IGNORE INTO ohlcv_minutes
-              (coin, interval_min, timestamp, open, high, low, close, volume, collected_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (coin, market, interval_min, timestamp, open, high, low, close, volume, collected_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             rows,
         )

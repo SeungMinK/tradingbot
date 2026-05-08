@@ -17,6 +17,7 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS ohlcv_daily (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     coin TEXT NOT NULL,
+    market TEXT NOT NULL DEFAULT 'upbit',
     date DATE NOT NULL,
     open REAL NOT NULL,
     high REAL NOT NULL,
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS market_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     coin TEXT NOT NULL DEFAULT 'KRW-BTC',
+    market TEXT NOT NULL DEFAULT 'upbit',
     price REAL NOT NULL,
     open_24h REAL,
     high_24h REAL,
@@ -55,6 +57,7 @@ CREATE TABLE IF NOT EXISTS trade_signals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     coin TEXT NOT NULL,
+    market TEXT NOT NULL DEFAULT 'upbit',
     signal_type TEXT NOT NULL,
     strategy TEXT NOT NULL,
     confidence REAL,
@@ -73,6 +76,7 @@ CREATE TABLE IF NOT EXISTS trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     coin TEXT NOT NULL,
+    market TEXT NOT NULL DEFAULT 'upbit',
     side TEXT NOT NULL,
     price REAL NOT NULL,
     amount REAL NOT NULL,
@@ -121,7 +125,8 @@ CREATE TABLE IF NOT EXISTS strategy_params (
 
 CREATE TABLE IF NOT EXISTS daily_reports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date DATE NOT NULL UNIQUE,
+    date DATE NOT NULL,
+    market TEXT NOT NULL DEFAULT 'upbit',
     starting_balance_krw REAL,
     ending_balance_krw REAL,
     total_asset_value_krw REAL,
@@ -141,6 +146,7 @@ CREATE TABLE IF NOT EXISTS daily_reports (
     total_fees_krw REAL,
     active_param_id INTEGER,
     market_state TEXT,
+    UNIQUE(date, market),
     FOREIGN KEY (active_param_id) REFERENCES strategy_params(id)
 );
 
@@ -309,6 +315,7 @@ CREATE INDEX IF NOT EXISTS idx_bt_run_date ON backtest_results(run_date, strateg
 CREATE TABLE IF NOT EXISTS ohlcv_minutes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     coin TEXT NOT NULL,
+    market TEXT NOT NULL DEFAULT 'upbit',
     interval_min INTEGER NOT NULL DEFAULT 5,  -- 1, 5, 15, 60
     timestamp DATETIME NOT NULL,
     open REAL NOT NULL,
@@ -333,6 +340,12 @@ CREATE TABLE IF NOT EXISTS capital_deposits (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_capital_deposits_at ON capital_deposits(deposited_at DESC);
+
+-- #245: 멀티 마켓 인덱스 (시장별 조회 최적화)
+CREATE INDEX IF NOT EXISTS idx_trades_market_ts ON trades(market, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_signals_market_ts ON trade_signals(market, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_snapshots_market_ts ON market_snapshots(market, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_daily_reports_market ON daily_reports(market, date DESC);
 """
 
 # 기본 전략 파라미터 (최초 1회 삽입)
@@ -1036,6 +1049,71 @@ class Database:
                         ),
                     )
                 logger.info("봇 설정 기본값 삽입 완료 (%d개)", len(_DEFAULT_BOT_CONFIG))
+
+            # 마이그레이션: 멀티 마켓 market 컬럼 추가 (#245)
+            for tbl in ("trades", "trade_signals", "market_snapshots", "ohlcv_daily", "ohlcv_minutes"):
+                try:
+                    conn.execute(f"SELECT market FROM {tbl} LIMIT 1")
+                except sqlite3.OperationalError:
+                    conn.execute(f"ALTER TABLE {tbl} ADD COLUMN market TEXT NOT NULL DEFAULT 'upbit'")
+                    logger.info("%s 테이블에 market 컬럼 추가 (#245)", tbl)
+
+            # 마이그레이션: daily_reports에 market 컬럼 + UNIQUE(date, market) 적용 (#245)
+            # ALTER TABLE로 UNIQUE 제약 변경 불가 → 새 테이블 만들어 데이터 이전
+            try:
+                cols = conn.execute("PRAGMA table_info(daily_reports)").fetchall()
+                has_market = any(c[1] == "market" for c in cols)
+                if not has_market:
+                    conn.executescript(
+                        """
+                        CREATE TABLE daily_reports_new (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            date DATE NOT NULL,
+                            market TEXT NOT NULL DEFAULT 'upbit',
+                            starting_balance_krw REAL,
+                            ending_balance_krw REAL,
+                            total_asset_value_krw REAL,
+                            realized_pnl_krw REAL,
+                            unrealized_pnl_krw REAL,
+                            daily_return_pct REAL,
+                            cumulative_return_pct REAL,
+                            total_trades INTEGER,
+                            buy_trades INTEGER,
+                            sell_trades INTEGER,
+                            winning_trades INTEGER,
+                            losing_trades INTEGER,
+                            win_rate REAL,
+                            avg_profit_pct REAL,
+                            avg_loss_pct REAL,
+                            max_drawdown_pct REAL,
+                            total_fees_krw REAL,
+                            active_param_id INTEGER,
+                            market_state TEXT,
+                            UNIQUE(date, market),
+                            FOREIGN KEY (active_param_id) REFERENCES strategy_params(id)
+                        );
+                        INSERT INTO daily_reports_new (
+                            id, date, market, starting_balance_krw, ending_balance_krw,
+                            total_asset_value_krw, realized_pnl_krw, unrealized_pnl_krw,
+                            daily_return_pct, cumulative_return_pct,
+                            total_trades, buy_trades, sell_trades, winning_trades, losing_trades,
+                            win_rate, avg_profit_pct, avg_loss_pct, max_drawdown_pct,
+                            total_fees_krw, active_param_id, market_state
+                        ) SELECT
+                            id, date, 'upbit', starting_balance_krw, ending_balance_krw,
+                            total_asset_value_krw, realized_pnl_krw, unrealized_pnl_krw,
+                            daily_return_pct, cumulative_return_pct,
+                            total_trades, buy_trades, sell_trades, winning_trades, losing_trades,
+                            win_rate, avg_profit_pct, avg_loss_pct, max_drawdown_pct,
+                            total_fees_krw, active_param_id, market_state
+                        FROM daily_reports;
+                        DROP TABLE daily_reports;
+                        ALTER TABLE daily_reports_new RENAME TO daily_reports;
+                        """
+                    )
+                    logger.info("daily_reports에 market 컬럼 + UNIQUE(date, market) 적용 (#245)")
+            except sqlite3.OperationalError as e:
+                logger.warning("daily_reports market 마이그레이션 스킵: %s", e)
 
             # 인덱스 생성
             conn.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_coin_id ON market_snapshots(coin, id DESC)")
