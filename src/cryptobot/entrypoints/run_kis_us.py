@@ -21,6 +21,8 @@ USD 기반 거래:
 - KIS_US_TAKE_PROFIT_PCT, KIS_US_STOP_LOSS_PCT, KIS_US_TRAILING_PCT (선택)
 - KIS_US_REBUY_COOLDOWN_SEC (기본 0 = 없음). 매도 후 같은 종목 재매수까지 최소 초.
   단타 노이즈 매매 회피용. 0이면 다음 틱부터 즉시 재매수 가능.
+- KIS_US_TICK_INTERVAL_SEC (기본 30). 봇 폴링 주기. 단타는 빠른 반응(30초)이 적절.
+  너무 짧으면(<15초) KIS rate limit 우려.
 
 사용법:
     python -m cryptobot.entrypoints.run_kis_us
@@ -68,7 +70,7 @@ DEFAULT_US_UNIVERSE = [
     "PLTR", "ARM", "NFLX",                             # AI/소프트웨어
 ]
 
-TICK_INTERVAL_SEC = 60
+DEFAULT_TICK_INTERVAL_SEC = 30  # #295: 단타용 빠른 반응 (기존 60→30)
 
 
 def _parse_universe() -> list[str]:
@@ -138,6 +140,9 @@ class KISUSBot:
         self._universe = _parse_universe()
         self._params = _build_params(len(self._universe))
         self._rebuy_cooldown_sec = int(os.getenv("KIS_US_REBUY_COOLDOWN_SEC", "0"))
+        self._tick_interval_sec = max(15, int(os.getenv("KIS_US_TICK_INTERVAL_SEC", str(DEFAULT_TICK_INTERVAL_SEC))))
+        self._heartbeat_every_n_ticks = max(1, 300 // self._tick_interval_sec)  # ~5분에 한 번 살아있음 핑
+        self._tick_count = 0
         self._running = False
         self._last_buy_price: dict[str, float] = {}  # USD 기준
         self._highest_since_buy: dict[str, float] = {}
@@ -165,6 +170,7 @@ class KISUSBot:
                 self._params.no_buy_window_minutes_before_close,
                 self._params.force_sell_window_minutes_before_close,
             )
+        logger.info("폴링 주기: %d초", self._tick_interval_sec)
 
         if self._notifier.is_configured:
             self._notifier.notify_bot_status(f"[KIS_US] 미국주식 봇 시작 ({mode})")
@@ -180,7 +186,7 @@ class KISUSBot:
                 logger.exception("틱 처리 중 예외: %s", e)
                 if self._notifier.is_configured:
                     self._notifier.notify_error(f"[KIS_US] 틱 예외: {e}")
-            time.sleep(TICK_INTERVAL_SEC)
+            time.sleep(self._tick_interval_sec)
 
     def _is_trading_enabled(self) -> bool:
         """DB bot_config.kis_us_trading_enabled 체크. 없으면 디폴트 enabled."""
@@ -192,6 +198,7 @@ class KISUSBot:
         return str(dict(row).get("value", "true")).lower() == "true"
 
     def _tick(self) -> None:
+        self._tick_count += 1
         if not self._is_trading_enabled():
             logger.debug("kis_us 거래 DB에서 비활성. 스킵")
             return
@@ -199,6 +206,15 @@ class KISUSBot:
             ny = datetime.now(NY).strftime("%H:%M")
             logger.debug("미국 정규장 외 (%s NY). 스킵", ny)
             return
+
+        # ~5분에 한 번 살아있음 핑 (사용자 가시성용)
+        if self._tick_count % self._heartbeat_every_n_ticks == 0:
+            ny = datetime.now(NY).strftime("%H:%M")
+            try:
+                usd = self._exchange.get_balance("USD")
+                logger.info("[heartbeat] tick=%d, NY %s, USD=$%.2f", self._tick_count, ny, usd)
+            except Exception:
+                logger.info("[heartbeat] tick=%d, NY %s (잔고 조회 실패)", self._tick_count, ny)
 
         for symbol in self._universe:
             try:
