@@ -109,6 +109,12 @@ INTEGER_ONLY_TICKERS: set[str] = {
     "SPXL", "SPXS", "TSLL", "LABU", "LABD",
 }
 
+# #311: KIS 분봉 미지원 종목 (HHDFS76950200 응답 빈 결과)
+# 활성화해도 OHLCV 조회 실패로 평가 불가. Admin UI에서 dim 처리.
+KIS_MINUTE_UNSUPPORTED: set[str] = {
+    "TQQQ", "SQQQ", "NVDL", "TSLL", "BIB", "QLD",
+}
+
 
 class KISUSExchange(Exchange):
     """KIS 미국주식 어댑터.
