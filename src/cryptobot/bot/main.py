@@ -172,6 +172,9 @@ class CryptoBot:
             if not self._strategy_sel.current_strategy or not self._config_mgr.get_bool("allow_trading", True):
                 return
 
+            # #322: VwapOrbBreakout 활성 시 KST 09:00 EOD 강제 청산
+            self._maybe_eod_clearance()
+
             for i, coin in enumerate(self._coin_mgr.active_coins):
                 try:
                     if i > 0:
@@ -300,7 +303,22 @@ class CryptoBot:
         if df is None or s is None:
             return
 
-        sig = s.check_buy(df, price)
+        # #322: VwapOrbBreakout는 분봉 + 오늘 자정 이후 봉 필터 필요
+        from cryptobot.strategies.vwap_orb_breakout import VwapOrbBreakout, filter_today_bars
+        if isinstance(s, VwapOrbBreakout):
+            try:
+                import pyupbit
+                minute_df = pyupbit.get_ohlcv(coin, interval="minute15", count=100)
+                if minute_df is not None and len(minute_df) > 0:
+                    minute_df = filter_today_bars(minute_df)
+                    sig = s.check_buy(minute_df, price)
+                else:
+                    sig = s.check_buy(df, price)  # 폴백
+            except Exception as e:
+                logger.warning("VwapOrbBreakout 분봉 fetch 실패: %s — 일봉 폴백", e)
+                sig = s.check_buy(df, price)
+        else:
+            sig = s.check_buy(df, price)
         pj = self._config_mgr.get_strategy_params_json(sn)
 
         if sig.signal_type != "buy":
@@ -477,6 +495,60 @@ class CryptoBot:
                 snapshot_id=snapshot_id,
                 strategy_params_json=pj,
             )
+
+    def _maybe_eod_clearance(self) -> None:
+        """#322: vwap_orb_breakout 활성 시 KST 09:00 ±5분에 보유 코인 강제 매도.
+
+        Zarattini 논문 EOD 청산 — 24/7 코인 시장에선 사용자 정의 시점(KST 09:00).
+        """
+        from cryptobot.strategies.vwap_orb_breakout import VwapOrbBreakout, is_eod_window
+
+        s = self._strategy_sel.current_strategy
+        if not isinstance(s, VwapOrbBreakout):
+            return
+        if not is_eod_window():
+            return
+
+        if not self._trader.is_ready:
+            logger.warning("EOD 청산 — Trader 미준비, 스킵")
+            return
+
+        # 보유 중인 코인 SQL 직접 조회 (sell 매칭 안 된 buy)
+        active_buys = self._db.execute(
+            "SELECT id, coin, price, amount FROM trades "
+            "WHERE side='buy' AND market='upbit' "
+            "AND NOT EXISTS (SELECT 1 FROM trades s WHERE s.buy_trade_id=trades.id AND s.side='sell')"
+        ).fetchall()
+        if not active_buys:
+            return
+
+        logger.info("[EOD 청산] 보유 %d종목 청산 시작 (KST 09:00)", len(active_buys))
+
+        for trade in active_buys:
+            coin = trade["coin"]
+            try:
+                amount = self._trader.get_balance_coin(coin) or 0
+                if amount <= 0:
+                    continue
+                order = self._trader.sell_market(coin, amount)
+                if order and order.success:
+                    buy_price = trade["price"] or 0
+                    pnl_pct = ((order.price - buy_price) / buy_price * 100) if buy_price > 0 else 0.0
+                    self._recorder.record_trade(
+                        coin=coin, market="upbit", side="sell",
+                        price=order.price, amount=order.amount,
+                        total_krw=order.total_krw, fee_krw=order.fee_krw,
+                        strategy="vwap_orb_breakout",
+                        trigger_reason="EOD 청산 (KST 09:00)",
+                        profit_pct=pnl_pct, buy_trade_id=trade["id"],
+                    )
+                    logger.info("[EOD] %s 매도 @ %.2f (%.2f%%)", coin, order.price, pnl_pct)
+                    if self._notifier.is_configured:
+                        self._notifier.notify_trade(
+                            f"[EOD] {coin} 매도 @ {order.price:.0f} ({pnl_pct:+.2f}%)"
+                        )
+            except Exception as e:
+                logger.exception("EOD 청산 실패 (%s): %s", coin, e)
 
     def _check_and_sell(self, active_trade, price, snapshot_id, snapshot=None, coin=None):
         """매도 신호 확인 및 실행."""
