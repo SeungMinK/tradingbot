@@ -34,6 +34,7 @@ export default function DashboardPage() {
   const [marketStats, setMarketStats] = useState<any>(null);  // #254 6단계
   const [marketCapital, setMarketCapital] = useState<any>(null);  // #277
   const [marketUniverse, setMarketUniverse] = useState<any>(null);  // #278
+  const [tab, setTab] = useState<"all" | "coin" | "kis">("all");  // #287 탭
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(() => {
@@ -91,6 +92,31 @@ export default function DashboardPage() {
         </button>
       </div>
 
+      {/* #287 탭: 전체 / 코인 / KIS */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: "1px solid var(--border)" }}>
+        {([
+          { id: "all", label: "전체" },
+          { id: "coin", label: "🪙 코인 (Upbit)" },
+          { id: "kis", label: "📈 KIS 주식" },
+        ] as const).map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            style={{
+              padding: "8px 16px", border: "none", cursor: "pointer", fontSize: 13,
+              fontWeight: tab === t.id ? 700 : 400,
+              borderBottom: tab === t.id ? "2px solid #4a9eff" : "2px solid transparent",
+              background: "transparent",
+              color: tab === t.id ? "#4a9eff" : "var(--text-secondary)",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* === 코인 섹션 === */}
+      {(tab === "all" || tab === "coin") && <>
       {/* KPI Cards */}
       {(() => {
         const pos = positions?.positions || [];
@@ -339,12 +365,21 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* #278: 시장별 모니터링 종목 + 활성 전략 */}
+      {/* 코인 섹션 끝 */}
+      </>}
+
+      {/* === KIS/공통: 시장별 모니터링 카드 (탭별 필터) === */}
       {marketUniverse?.markets?.length > 0 && (
         <div className="card" style={{ marginTop: 16 }}>
-          <div className="card-title">시장별 모니터링 + 전략</div>
+          <div className="card-title">
+            {tab === "coin" ? "코인 전략" : tab === "kis" ? "KIS 주식 전략" : "시장별 모니터링 + 전략"}
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 12 }}>
-            {marketUniverse.markets.map((m: any) => (
+            {marketUniverse.markets.filter((m: any) => {
+              if (tab === "coin") return m.market === "upbit";
+              if (tab === "kis") return m.market === "kis_kr" || m.market === "kis_us";
+              return true;
+            }).map((m: any) => (
               <div key={m.market} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>{m.display_name}</div>
                 <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>
@@ -384,8 +419,8 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* #277: KIS 시장별 시드/자본 */}
-      {marketCapital?.markets?.length > 0 && (
+      {/* === KIS 섹션: 자본 + 단타모드 표시 === */}
+      {(tab === "all" || tab === "kis") && marketCapital?.markets?.length > 0 && (
         <div className="card" style={{ marginTop: 16 }}>
           <div className="card-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span>KIS 시장별 자본</span>
