@@ -23,6 +23,8 @@ USD 기반 거래:
   단타 노이즈 매매 회피용. 0이면 다음 틱부터 즉시 재매수 가능.
 - KIS_US_TICK_INTERVAL_SEC (기본 30). 봇 폴링 주기. 단타는 빠른 반응(30초)이 적절.
   너무 짧으면(<15초) KIS rate limit 우려.
+- KIS_US_OHLCV_INTERVAL (기본: 단타→"15min", 스윙→"day"). RSI/MA 계산용 봉 단위.
+  단타에 일봉 RSI는 시간 단위 mismatch — 15분봉이 적절.
 
 사용법:
     python -m cryptobot.entrypoints.run_kis_us
@@ -157,6 +159,9 @@ class KISUSBot:
         self._tick_interval_sec = max(15, int(os.getenv("KIS_US_TICK_INTERVAL_SEC", str(DEFAULT_TICK_INTERVAL_SEC))))
         self._heartbeat_every_n_ticks = max(1, 300 // self._tick_interval_sec)  # ~5분에 한 번 살아있음 핑
         self._tick_count = 0
+        # #299: OHLCV 봉 단위 — 단타면 디폴트 15분봉, 스윙은 일봉
+        default_interval = "15min" if self._params.day_trading_mode else "day"
+        self._ohlcv_interval = os.getenv("KIS_US_OHLCV_INTERVAL", default_interval).strip()
         self._running = False
         self._last_buy_price: dict[str, float] = {}  # USD 기준
         self._highest_since_buy: dict[str, float] = {}
@@ -185,6 +190,7 @@ class KISUSBot:
                 self._params.force_sell_window_minutes_before_close,
             )
         logger.info("폴링 주기: %d초", self._tick_interval_sec)
+        logger.info("OHLCV 봉 단위: %s", self._ohlcv_interval)
 
         if self._notifier.is_configured:
             self._notifier.notify_bot_status(f"[KIS_US] 미국주식 봇 시작 ({mode})")
@@ -303,7 +309,7 @@ class KISUSBot:
 
         df = None
         try:
-            df = self._exchange.get_ohlcv(symbol, count=80)
+            df = self._exchange.get_ohlcv(symbol, interval=self._ohlcv_interval, count=80)
         except APIError as e:
             logger.warning("%s OHLCV 조회 실패 (매도 판단은 단순 룰로): %s", symbol, e)
 
@@ -368,7 +374,7 @@ class KISUSBot:
                 return
 
         try:
-            df = self._exchange.get_ohlcv(symbol, count=80)
+            df = self._exchange.get_ohlcv(symbol, interval=self._ohlcv_interval, count=80)
         except APIError as e:
             logger.warning("%s OHLCV 조회 실패 — 매수 판단 스킵: %s", symbol, e)
             return

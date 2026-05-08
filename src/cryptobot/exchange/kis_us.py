@@ -88,6 +88,11 @@ DEFAULT_EXCHANGE_BY_TICKER = {
     "TECL": "AMEX",   # Direxion Tech Bull 3X
     "NVDL": "AMEX",   # GraniteShares NVDA 2X
     "SNXX": "AMEX",   # Tradr 2X Long SNDK
+    "SPXL": "AMEX",   # Direxion S&P 500 Bull 3X
+    "SPXS": "AMEX",   # Direxion S&P 500 Bear 3X
+    "TSLL": "AMEX",   # Direxion TSLA Bull 2X
+    "LABU": "AMEX",   # Direxion Bio Bull 3X
+    "LABD": "AMEX",   # Direxion Bio Bear 3X
     # ETF (1X)
     "QQQ": "NASD",
     "SOXX": "NASD",
@@ -99,7 +104,10 @@ DEFAULT_EXCHANGE_BY_TICKER = {
 
 # 정수(1주) 매매만 지원하는 종목 — KIS 응답 "매매단위: 1" 종목들
 # 사용자 KIS 앱 캡쳐로 확인. fractional=False로 매수 처리.
-INTEGER_ONLY_TICKERS: set[str] = {"SOXL", "SOXS", "TQQQ", "SQQQ", "USD", "TECL", "NVDL", "SNXX"}
+INTEGER_ONLY_TICKERS: set[str] = {
+    "SOXL", "SOXS", "TQQQ", "SQQQ", "USD", "TECL", "NVDL", "SNXX",
+    "SPXL", "SPXS", "TSLL", "LABU", "LABD",
+}
 
 
 class KISUSExchange(Exchange):
@@ -222,23 +230,42 @@ class KISUSExchange(Exchange):
         interval: str = "day",
         count: int = 200,
     ) -> pd.DataFrame:
-        """OHLCV 일봉 조회 (미국 시간 기준).
+        """OHLCV 조회 (미국 시간 기준).
 
-        #297: 60초 캐시 — 일봉 RSI/MA 지표는 일중 미세변동만이므로 30초 폴링에
-        매번 dailyprice 호출하면 rate limit 걸림. 60초 캐시로 충분.
+        Args:
+            interval: "day" (일봉) 또는 "1min"/"5min"/"15min"/"30min"/"60min" (분봉, #299)
+            count: 조회 행 수
+
+        #297: 캐시 — 30초 폴링에 매번 호출하면 rate limit 걸림.
+        - 일봉: 60초 캐시 (일중 미세변동만)
+        - 분봉: interval 분량의 절반 캐시 (예: 15분봉 → 7분 캐시)
         """
-        if interval != "day":
-            raise ValueError(f"미국주식은 day만 지원 (요청: {interval})")
-
-        # 캐시 체크 (count 무관 — 캐시는 항상 최대 행 수 유지하고 tail로 잘라줌)
+        # 캐시 체크 (interval별 분리)
         import time as _time
-        cache_key = symbol
+        cache_key = f"{symbol}|{interval}"
         cached = self._ohlcv_cache.get(cache_key)
-        if cached and (_time.time() - cached[0]) < self._ohlcv_cache_ttl_sec:
+        ttl = self._ohlcv_cache_ttl_sec
+        if interval != "day":
+            try:
+                mins = int(interval.replace("min", ""))
+                ttl = max(20, mins * 30)  # 분봉은 N분의 절반(=30초×N) TTL
+            except ValueError:
+                pass
+        if cached and (_time.time() - cached[0]) < ttl:
             df_cached = cached[1]
             return df_cached.tail(count)
 
-        excd = self._quote_exchange_code(symbol)  # 시세는 3글자
+        excd = self._quote_exchange_code(symbol)
+
+        if interval == "day":
+            df = self._fetch_daily(symbol, excd, count)
+        else:
+            df = self._fetch_minute(symbol, excd, interval, count)
+
+        self._ohlcv_cache[cache_key] = (_time.time(), df)
+        return df.tail(count)
+
+    def _fetch_daily(self, symbol: str, excd: str, count: int) -> pd.DataFrame:
         end_date = datetime.now(NY).strftime("%Y%m%d")
         from datetime import timedelta as _td
 
@@ -251,9 +278,9 @@ class KISUSExchange(Exchange):
                 "AUTH": "",
                 "EXCD": excd,
                 "SYMB": symbol,
-                "GUBN": "0",  # 0=일봉, 1=주봉, 2=월봉
+                "GUBN": "0",
                 "BYMD": end_date,
-                "MODP": "1",  # 1=수정주가
+                "MODP": "1",
             },
         )
         rows = data.get("output2", [])
@@ -276,11 +303,61 @@ class KISUSExchange(Exchange):
             except (KeyError, ValueError):
                 continue
         df = pd.DataFrame(df_rows).sort_values("date").set_index("date")
-        # KIS는 시작 날짜로부터 역순으로 응답하기도 하므로 start_date 이후만 필터
         df = df[df.index >= pd.to_datetime(start_date, format="%Y%m%d")]
-        # #297: 캐시 저장 (전체 df, count 무관)
-        self._ohlcv_cache[cache_key] = (_time.time(), df)
-        return df.tail(count)
+        return df
+
+    def _fetch_minute(self, symbol: str, excd: str, interval: str, count: int) -> pd.DataFrame:
+        """분봉 OHLCV (#299).
+
+        TR_ID: HHDFS76950200, EP: /quotations/inquire-time-itemchartprice.
+        응답 output2 필드: tymd, xymd, xhms, open, high, low, last, evol, eamt
+        """
+        try:
+            nmin = int(interval.replace("min", ""))
+        except ValueError as e:
+            raise ValueError(f"interval은 'day' 또는 'Nmin' 형식 (요청: {interval})") from e
+        if nmin not in (1, 5, 15, 30, 60):
+            raise ValueError(f"분봉은 1/5/15/30/60만 지원 (요청: {nmin})")
+
+        nrec = max(50, min(count, 200))  # KIS 분봉 최대 200건/호출
+        data = self._client.get(
+            "/uapi/overseas-price/v1/quotations/inquire-time-itemchartprice",
+            tr_id="HHDFS76950200",
+            params={
+                "AUTH": "",
+                "EXCD": excd,
+                "SYMB": symbol,
+                "NMIN": str(nmin),
+                "PINC": "1",        # 1=최근부터 역순
+                "NEXT": "",
+                "NREC": str(nrec),
+                "FILL": "",
+                "KEYB": "",
+            },
+        )
+        rows = data.get("output2", []) or []
+        if not rows:
+            raise APIError(f"미국주식 분봉 조회 결과 없음: {symbol} ({interval})")
+
+        df_rows = []
+        for r in rows:
+            try:
+                # tymd=YYYYMMDD, xhms=HHMMSS (NY 현지 시간)
+                ts = pd.to_datetime(f"{r['tymd']} {r['xhms']:>06}", format="%Y%m%d %H%M%S")
+                df_rows.append(
+                    {
+                        "date": ts,
+                        "open": float(r["open"]),
+                        "high": float(r["high"]),
+                        "low": float(r["low"]),
+                        "close": float(r["last"]),  # 분봉은 'last'가 종가
+                        "volume": float(r.get("evol", 0)),
+                    }
+                )
+            except (KeyError, ValueError):
+                continue
+        df = pd.DataFrame(df_rows).sort_values("date").set_index("date")
+        return df
 
     # ---- 주문 ----
 

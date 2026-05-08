@@ -1028,6 +1028,11 @@ class Database:
                     ("TECL",  "Direxion Tech Bull 3X",        "AMEX", 1, "leveraged", 0, "기술주 3X"),
                     ("NVDL",  "GraniteShares NVDA 2X",        "AMEX", 1, "leveraged", 0, "엔비디아 2X"),
                     ("SNXX",  "Tradr 2X Long SNDK",           "AMEX", 1, "leveraged", 0, "SanDisk 2X"),
+                    ("SPXL",  "Direxion S&P Bull 3X",         "AMEX", 1, "leveraged", 0, "S&P500 3X — 시장 전체 노출"),
+                    ("SPXS",  "Direxion S&P Bear 3X",         "AMEX", 1, "leveraged", 0, "S&P500 -3X 인버스"),
+                    ("TSLL",  "Direxion TSLA Bull 2X",        "AMEX", 1, "leveraged", 0, "Tesla 2X"),
+                    ("LABU",  "Direxion Bio Bull 3X",         "AMEX", 1, "leveraged", 0, "바이오 3X"),
+                    ("LABD",  "Direxion Bio Bear 3X",         "AMEX", 1, "leveraged", 0, "바이오 -3X 인버스"),
                     # 크립토 노출
                     ("COIN",  "Coinbase",       "NASD", 0, "crypto",  0, ""),
                     ("MSTR",  "MicroStrategy",  "NASD", 0, "crypto",  0, "BTC 보유"),
@@ -1054,6 +1059,22 @@ class Database:
                         row,
                     )
                 logger.info("#293: kis_us_symbols 시드 %d종목 (SOXL 활성)", len(_seed))
+
+            # #299: 추가 레버리지 ETF (idempotent — 기존 DB에 신규 추가)
+            _new_leveraged = [
+                ("SPXL",  "Direxion S&P Bull 3X",     "AMEX", 1, "leveraged", 0, "S&P500 3X"),
+                ("SPXS",  "Direxion S&P Bear 3X",     "AMEX", 1, "leveraged", 0, "S&P500 -3X 인버스"),
+                ("TSLL",  "Direxion TSLA Bull 2X",    "AMEX", 1, "leveraged", 0, "Tesla 2X"),
+                ("LABU",  "Direxion Bio Bull 3X",     "AMEX", 1, "leveraged", 0, "바이오 3X"),
+                ("LABD",  "Direxion Bio Bear 3X",     "AMEX", 1, "leveraged", 0, "바이오 -3X 인버스"),
+            ]
+            for row in _new_leveraged:
+                conn.execute(
+                    "INSERT OR IGNORE INTO kis_us_symbols "
+                    "(ticker, display_name, exchange, is_integer_only, category, enabled, note) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    row,
+                )
 
             # 코인 카테고리별 전략 기본값
             row = conn.execute("SELECT COUNT(*) FROM coin_strategy_config").fetchone()
