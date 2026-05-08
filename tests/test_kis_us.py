@@ -161,8 +161,21 @@ def test_sell_market(tmp_path: Path):
 
 
 def test_exchange_code_default_nasdaq(tmp_path: Path):
-    """풀에 없는 ticker는 NASDAQ 기본."""
+    """풀에 없는 ticker는 NASDAQ 기본. #289: SPY/VOO는 AMEX (NYSE Arca ETF)."""
     ex = _build(tmp_path)
     assert ex._exchange_code("UNKNOWN") == "NASD"
     assert ex._exchange_code("NVDA") == "NASD"
-    assert ex._exchange_code("SPY") == "NYSE"
+    assert ex._exchange_code("SOXL") == "AMEX"  # 레버리지 ETF
+    assert ex._exchange_code("TSM") == "NYSE"
+
+
+def test_integer_only_tickers_set():
+    """레버리지 ETF는 매매단위 1주 (KIS 미국주식 정수 매매)."""
+    from cryptobot.exchange.kis_us import INTEGER_ONLY_TICKERS
+
+    assert "SOXL" in INTEGER_ONLY_TICKERS
+    assert "TQQQ" in INTEGER_ONLY_TICKERS
+    assert "SQQQ" in INTEGER_ONLY_TICKERS
+    # 일반 주식은 fractional 가능
+    assert "NVDA" not in INTEGER_ONLY_TICKERS
+    assert "AAPL" not in INTEGER_ONLY_TICKERS

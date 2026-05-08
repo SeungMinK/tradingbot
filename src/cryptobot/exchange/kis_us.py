@@ -76,14 +76,30 @@ DEFAULT_EXCHANGE_BY_TICKER = {
     "AVGO": "NASD",
     "ASML": "NASD",
     "SNDK": "NASD",
-    "SNXX": "NYSE",  # Tradr ETF는 NYSE Arca
     # NYSE
     "TSM": "NYSE",
-    # ETF
+    # AMEX (NYSE Arca ETF — KIS는 NYSE Arca를 AMEX 코드로 통합)
+    # 사용자 KIS 캡쳐로 확인: SOXL=아멕스, SNXX(Tradr) 도 동일 분류 추정
+    "SOXL": "AMEX",   # Direxion Semi Bull 3X (매매단위 1주)
+    "SOXS": "AMEX",   # Direxion Semi Bear 3X
+    "TQQQ": "AMEX",   # ProShares UltraPro QQQ 3X
+    "SQQQ": "AMEX",   # ProShares UltraPro Short QQQ 3X
+    "USD":  "AMEX",   # ProShares Ultra Semiconductors 2X
+    "TECL": "AMEX",   # Direxion Tech Bull 3X
+    "NVDL": "AMEX",   # GraniteShares NVDA 2X
+    "SNXX": "AMEX",   # Tradr 2X Long SNDK
+    # ETF (1X)
     "QQQ": "NASD",
-    "SPY": "NYSE",
-    "VOO": "NYSE",
+    "SOXX": "NASD",
+    "SMH":  "NASD",
+    "SPY":  "AMEX",
+    "VOO":  "AMEX",
+    "DIA":  "AMEX",
 }
+
+# 정수(1주) 매매만 지원하는 종목 — KIS 응답 "매매단위: 1" 종목들
+# 사용자 KIS 앱 캡쳐로 확인. fractional=False로 매수 처리.
+INTEGER_ONLY_TICKERS: set[str] = {"SOXL", "SOXS", "TQQQ", "SQQQ", "USD", "TECL", "NVDL", "SNXX"}
 
 
 class KISUSExchange(Exchange):
@@ -260,7 +276,11 @@ class KISUSExchange(Exchange):
         Note:
             KIS 미국주식 시장가는 'OVRS_ORD_UNPR=0' + 'ORD_DVSN=00' 으로 처리.
             소수점 거래는 일부 종목 한정 (S&P500/NASDAQ100 등) — KIS API 응답에서 거부될 수 있음.
+            매매단위 1주만 지원하는 종목(레버리지 ETF 등)은 INTEGER_ONLY_TICKERS에서 정수 강제.
         """
+        # 정수 매매단위 종목은 floor 처리
+        if symbol in INTEGER_ONLY_TICKERS:
+            amount = float(int(amount))
         if amount <= 0:
             return OrderResult(
                 success=False,
