@@ -115,8 +115,8 @@ def test_sell_holds_when_trend_alive():
 
 def test_position_size_kr_integer_shares():
     qty, reason = calc_position_size(
-        available_budget_krw=200_000,
-        current_price_krw=70_000,
+        available_budget=200_000,
+        current_price=70_000,
         fractional=False,
         params=KISStrategyParams(max_position_per_symbol_pct=40.0),
     )
@@ -127,8 +127,8 @@ def test_position_size_kr_integer_shares():
 
 def test_position_size_kr_skip_when_too_expensive():
     qty, reason = calc_position_size(
-        available_budget_krw=200_000,
-        current_price_krw=300_000,  # 1주 < 한도
+        available_budget=200_000,
+        current_price=300_000,  # 1주 < 한도
         fractional=False,
         params=KISStrategyParams(max_position_per_symbol_pct=30.0),
     )
@@ -138,8 +138,8 @@ def test_position_size_kr_skip_when_too_expensive():
 
 def test_position_size_us_fractional():
     qty, reason = calc_position_size(
-        available_budget_krw=200_000,
-        current_price_krw=100_000,  # USD price × FX rate
+        available_budget=200_000,
+        current_price=100_000,  # USD price × FX rate
         fractional=True,
         params=KISStrategyParams(max_position_per_symbol_pct=30.0),
     )
@@ -150,8 +150,8 @@ def test_position_size_us_fractional():
 
 def test_position_size_zero_budget():
     qty, reason = calc_position_size(
-        available_budget_krw=0,
-        current_price_krw=100,
+        available_budget=0,
+        current_price=100,
         fractional=True,
     )
     assert qty == 0.0
@@ -161,8 +161,8 @@ def test_position_size_zero_budget():
 def test_position_size_us_skip_when_dust():
     # 가격이 너무 비싸서 0.001주 미만 — skip
     qty, reason = calc_position_size(
-        available_budget_krw=1_000,
-        current_price_krw=10_000_000,
+        available_budget=1_000,
+        current_price=10_000_000,
         fractional=True,
         params=KISStrategyParams(max_position_per_symbol_pct=30.0),
     )

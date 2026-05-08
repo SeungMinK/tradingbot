@@ -67,45 +67,45 @@ class KISStrategyParams:
 
 
 def calc_position_size(
-    available_budget_krw: float,
-    current_price_krw: float,
+    available_budget: float,
+    current_price: float,
     fractional: bool,
     params: KISStrategyParams = KISStrategyParams(),
 ) -> tuple[float, str]:
-    """매수 수량 계산.
+    """매수 수량 계산. 통화 무관 — budget/price만 같은 통화로 들어오면 OK.
 
     Args:
-        available_budget_krw: 시장 가용 예산 (KRW)
-        current_price_krw: 현재가 (KRW 환산. US는 USD×환율)
+        available_budget: 시장 가용 예산 (KR=KRW, US=USD)
+        current_price: 현재가 (KR=KRW, US=USD)
         fractional: True=소수점 매수 가능 (미국주식), False=1주 단위 (한국주식)
 
     Returns:
         (qty, reason). qty=0 이면 매수 불가, reason은 사유.
 
     설계:
-    - 종목당 한도: 시드 × max_position_per_symbol_pct / 100
+    - 종목당 한도: 가용예산 × max_position_per_symbol_pct / 100
     - 한국주식(1주 단위): qty = floor(한도 / 가격). 0이면 skip
     - 미국주식(소수점): qty = 한도 / 가격 (소수점 4자리)
     """
-    if available_budget_krw <= 0:
+    if available_budget <= 0:
         return 0.0, "가용 예산 없음"
-    if current_price_krw <= 0:
+    if current_price <= 0:
         return 0.0, "가격 정보 없음"
 
-    target = available_budget_krw * (params.max_position_per_symbol_pct / 100.0)
+    target = available_budget * (params.max_position_per_symbol_pct / 100.0)
 
     if not fractional:
-        qty = int(target // current_price_krw)
+        qty = int(target // current_price)
         if qty < 1:
             return 0.0, (
-                f"예산 부족 (한도 {target:,.0f} < 1주 가격 {current_price_krw:,.0f})"
+                f"예산 부족 (한도 {target:,.0f} < 1주 가격 {current_price:,.0f})"
             )
-        return float(qty), f"{qty}주 (한도 {target:,.0f}원)"
+        return float(qty), f"{qty}주 (한도 {target:,.0f})"
 
-    qty = round(target / current_price_krw, 4)
+    qty = round(target / current_price, 4)
     if qty < 0.001:
         return 0.0, "수량 < 0.001 (소수점 한도)"
-    return qty, f"{qty:.4f}주 (한도 {target:,.0f}원)"
+    return qty, f"{qty:.4f}주 (한도 {target:,.2f})"
 
 
 def _calc_rsi(prices: pd.Series, period: int = 14) -> float | None:
