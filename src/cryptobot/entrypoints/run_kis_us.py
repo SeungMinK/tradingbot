@@ -80,17 +80,29 @@ def _parse_universe() -> list[str]:
 
 
 def _build_params(universe_size: int) -> KISStrategyParams:
-    """env 기반 전략 파라미터 생성. 종목당 한도는 100/N로 자동."""
+    """env 기반 전략 파라미터 생성.
+
+    종목당 한도는 100/N로 자동 (N=풀 크기).
+    단타모드 ON일 때 손절/익절/트레일링 디폴트가 자동으로 단타용으로 좁아짐:
+    - 스윙: TP +10% / SL -10% / TR -3%
+    - 단타: TP +2.5% / SL -1.5% / TR -1.0% (하루 안에 발동 가능한 폭)
+    env로 명시적 오버라이드 가능 (KIS_US_TAKE_PROFIT_PCT 등).
+    """
     if universe_size <= 0:
         universe_size = 1
+    is_day_trading = os.getenv("KIS_US_DAY_TRADING", "false").lower() == "true"
+    # 모드별 디폴트
+    default_tp = "2.5" if is_day_trading else "10"
+    default_sl = "-1.5" if is_day_trading else "-10"
+    default_tr = "-1.0" if is_day_trading else "-3"
     return KISStrategyParams(
         rsi_oversold=float(os.getenv("KIS_US_RSI_OVERSOLD", "35")),
         rsi_overbought=float(os.getenv("KIS_US_RSI_OVERBOUGHT", "70")),
-        take_profit_pct=float(os.getenv("KIS_US_TAKE_PROFIT_PCT", "10")),
-        stop_loss_pct=float(os.getenv("KIS_US_STOP_LOSS_PCT", "-10")),
-        trailing_stop_pct=float(os.getenv("KIS_US_TRAILING_PCT", "-3")),
+        take_profit_pct=float(os.getenv("KIS_US_TAKE_PROFIT_PCT", default_tp)),
+        stop_loss_pct=float(os.getenv("KIS_US_STOP_LOSS_PCT", default_sl)),
+        trailing_stop_pct=float(os.getenv("KIS_US_TRAILING_PCT", default_tr)),
         max_position_per_symbol_pct=100.0 / universe_size,
-        day_trading_mode=os.getenv("KIS_US_DAY_TRADING", "false").lower() == "true",
+        day_trading_mode=is_day_trading,
         no_buy_window_minutes_before_close=int(os.getenv("KIS_US_NO_BUY_BEFORE_CLOSE_MIN", "30")),
         force_sell_window_minutes_before_close=int(os.getenv("KIS_US_FORCE_SELL_BEFORE_CLOSE_MIN", "10")),
     )

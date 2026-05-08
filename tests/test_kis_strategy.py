@@ -242,6 +242,36 @@ def test_build_params_thresholds_overridable(monkeypatch):
     assert p.trailing_stop_pct == -1.5
 
 
+def test_build_params_day_trading_thresholds_default(monkeypatch):
+    """단타모드 ON 시 디폴트가 단타용으로 좁아짐."""
+    from cryptobot.entrypoints.run_kis_us import _build_params
+
+    monkeypatch.delenv("KIS_US_TAKE_PROFIT_PCT", raising=False)
+    monkeypatch.delenv("KIS_US_STOP_LOSS_PCT", raising=False)
+    monkeypatch.delenv("KIS_US_TRAILING_PCT", raising=False)
+    monkeypatch.setenv("KIS_US_DAY_TRADING", "true")
+    p = _build_params(universe_size=1)
+    assert p.day_trading_mode is True
+    assert p.take_profit_pct == 2.5
+    assert p.stop_loss_pct == -1.5
+    assert p.trailing_stop_pct == -1.0
+
+
+def test_build_params_swing_thresholds_default(monkeypatch):
+    """스윙(디폴트) 모드는 보수 견딤 임계값."""
+    from cryptobot.entrypoints.run_kis_us import _build_params
+
+    monkeypatch.delenv("KIS_US_TAKE_PROFIT_PCT", raising=False)
+    monkeypatch.delenv("KIS_US_STOP_LOSS_PCT", raising=False)
+    monkeypatch.delenv("KIS_US_TRAILING_PCT", raising=False)
+    monkeypatch.setenv("KIS_US_DAY_TRADING", "false")
+    p = _build_params(universe_size=20)
+    assert p.day_trading_mode is False
+    assert p.take_profit_pct == 10.0
+    assert p.stop_loss_pct == -10.0
+    assert p.trailing_stop_pct == -3.0
+
+
 # ---- DB 기반 거래 토글 (#285) ----
 
 def _setup_temp_db(tmp_path, monkeypatch):
