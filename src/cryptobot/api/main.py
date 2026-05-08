@@ -20,7 +20,7 @@ from pydantic import BaseModel as _BaseModel
 
 from cryptobot.api.auth import UserResponse, get_current_user
 from cryptobot.api.deps import get_db as _get_db
-from cryptobot.api.routes import auth, balance, coin_strategy, config, market, news, public, signals, strategies, trades
+from cryptobot.api.routes import auth, balance, coin_strategy, config, market, news, public, signals, strategies, trades, visits
 from cryptobot.logging_config import setup_logging
 
 setup_logging("api", "INFO")
@@ -78,6 +78,7 @@ app.include_router(config.router)
 app.include_router(signals.router)
 app.include_router(news.router)
 app.include_router(coin_strategy.router)
+app.include_router(visits.router)  # #240 방문자 통계 (admin)
 
 
 @app.get("/api/llm/hard-limits", tags=["llm"])

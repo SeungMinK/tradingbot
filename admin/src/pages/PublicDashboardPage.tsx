@@ -72,6 +72,24 @@ export default function PublicDashboardPage() {
     return () => clearInterval(interval);
   }, [fetchAll]);
 
+  // #240: 방문자 추적 ping (sessionStorage 기반)
+  useEffect(() => {
+    try {
+      const KEY = "cryptobot-session-id";
+      let sid = sessionStorage.getItem(KEY);
+      if (!sid) {
+        sid = (crypto as any).randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+        sessionStorage.setItem(KEY, sid);
+      }
+      const base = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api").replace(/\/api$/, "");
+      fetch(`${base}/api/public/visit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sid, page: "/" }),
+      }).catch(() => {});
+    } catch {}
+  }, []);
+
   // 뉴스 자동 롤링 (모든 훅은 early return 전에)
   useEffect(() => {
     if (news.length <= 1 || newsExpanded) return;
