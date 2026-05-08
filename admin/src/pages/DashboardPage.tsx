@@ -31,6 +31,7 @@ export default function DashboardPage() {
   const [llmDecisions, setLlmDecisions] = useState<LLMDecision[]>([]);
   const [llmTab, setLlmTab] = useState(0);
   const [visitStats, setVisitStats] = useState<any>(null);  // #240
+  const [marketStats, setMarketStats] = useState<any>(null);  // #254 6단계
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(() => {
@@ -45,7 +46,8 @@ export default function DashboardPage() {
       client.get("/news?limit=6&sort=latest").then((r) => r.data?.items || r.data || []).catch(() => []),
       client.get("/llm/decisions?limit=6").then((r) => r.data).catch(() => []),
       client.get("/visits/stats?days=30").then((r) => r.data).catch(() => null),
-    ]).then(([bal, pos, hist, mkt, trades, coins, nStats, news, llm, vs]) => {
+      client.get("/market-stats").then((r) => r.data).catch(() => null),
+    ]).then(([bal, pos, hist, mkt, trades, coins, nStats, news, llm, vs, ms]) => {
       setBalance(bal);
       setPositions(pos as PositionsResponse | null);
       setHistory(hist as BalanceHistory[]);
@@ -56,6 +58,7 @@ export default function DashboardPage() {
       setRecentNews(news as any[]);
       setLlmDecisions(llm as LLMDecision[]);
       setVisitStats(vs);
+      setMarketStats(ms);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
@@ -327,6 +330,43 @@ export default function DashboardPage() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* #254 6단계: 시장별 PnL */}
+      {marketStats?.markets?.length > 0 && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-title">시장별 PnL</div>
+          <table style={{ width: "100%", fontSize: 13 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: 6 }}>시장</th>
+                <th style={{ textAlign: "right", padding: 6 }}>매수</th>
+                <th style={{ textAlign: "right", padding: 6 }}>매도</th>
+                <th style={{ textAlign: "right", padding: 6 }}>승률</th>
+                <th style={{ textAlign: "right", padding: 6 }}>평균 수익</th>
+                <th style={{ textAlign: "right", padding: 6 }}>실현 PnL</th>
+              </tr>
+            </thead>
+            <tbody>
+              {marketStats.markets.map((m: any) => (
+                <tr key={m.market}>
+                  <td style={{ padding: 6, fontWeight: 600 }}>
+                    {m.market === "upbit" ? "🪙 코인" : m.market === "kis_kr" ? "🇰🇷 한국주식" : m.market === "kis_us" ? "🇺🇸 미국주식" : m.market}
+                  </td>
+                  <td style={{ textAlign: "right", padding: 6 }}>{m.buys}</td>
+                  <td style={{ textAlign: "right", padding: 6 }}>{m.sells}</td>
+                  <td style={{ textAlign: "right", padding: 6 }}>{m.win_rate}%</td>
+                  <td style={{ textAlign: "right", padding: 6 }} className={m.avg_profit_pct >= 0 ? "positive" : "negative"}>
+                    {m.avg_profit_pct >= 0 ? "+" : ""}{m.avg_profit_pct}%
+                  </td>
+                  <td style={{ textAlign: "right", padding: 6, fontWeight: 600 }} className={m.total_pnl_krw >= 0 ? "positive" : "negative"}>
+                    {m.total_pnl_krw >= 0 ? "+" : ""}{Number(m.total_pnl_krw).toLocaleString()}원
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

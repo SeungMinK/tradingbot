@@ -322,10 +322,18 @@ RETRY_PROMPT = """이전 응답에서 recommended_params에 다음 필드가 누
 
 
 class LLMAnalyzer:
-    """LLM 시장 분석기."""
+    """LLM 시장 분석기.
 
-    def __init__(self, db) -> None:
+    #254 5단계: market 인자로 시장별 컨텍스트 분리 가능.
+      - 'upbit': 코인 (현재 동작)
+      - 'kis_kr': 한국주식 (코스피 우량주)
+      - 'kis_us': 미국주식 (빅테크)
+    프롬프트는 코인 기준 그대로지만, market 필드로 추후 시장별 분기 가능.
+    """
+
+    def __init__(self, db, market: str = "upbit") -> None:
         self._db = db
+        self.market = market
         self._api_key = os.getenv("ANTHROPIC_API_KEY", "")
         self._model = os.getenv("LLM_MODEL", "claude-haiku-4-5-20251001")
 
