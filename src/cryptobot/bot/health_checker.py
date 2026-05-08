@@ -686,6 +686,7 @@ class HealthChecker:
         """4시간 주기 경량 헬스체크. Slack으로 요약 전송.
 
         run_all(일일)과 달리 빠른 liveness 위주 — 프로세스/DB/최근 활동.
+        #255: 매수 임박(80%+) 코인 있으면 별도 Slack 알림.
         """
         import subprocess
 
@@ -705,8 +706,97 @@ class HealthChecker:
             message = self._format_periodic_slack(results)
             self._notifier.send(message)
 
+        # #255: 매수 임박 코인 별도 알림
+        try:
+            self._check_buy_imminent_and_alert()
+        except Exception as e:
+            logger.warning("매수 임박 체크 실패: %s", e)
+
         logger.info("주기 헬스체크 완료")
         return results
+
+    def _check_buy_imminent_and_alert(self) -> None:
+        """#255: bb_rsi_combined 매수 조건(RSI≤30 AND 가격<BB하단)에 임박한 코인 알림.
+
+        임박도 = (1 - rsi_gap/30) × 0.5 + (1 - bb_gap/10) × 0.5 (각 0~1 clamp).
+        80% 이상이면 Slack 알림. 같은 코인 6시간 1회 제한 (스팸 방지).
+        """
+        from cryptobot.bot.coin_manager import CoinManager
+        # 화이트리스트 8개 + 메이저 위주
+        whitelist_row = self._db.execute(
+            "SELECT value FROM bot_config WHERE key='coin_whitelist'"
+        ).fetchone()
+        if whitelist_row and dict(whitelist_row).get("value"):
+            coins = [c.strip() for c in dict(whitelist_row)["value"].split(",") if c.strip()]
+        else:
+            coins = list(CoinManager.DEFAULT_WHITELIST)
+
+        candidates = []
+        for coin in coins:
+            row = self._db.execute(
+                "SELECT price, rsi_14, bb_lower FROM market_snapshots "
+                "WHERE coin=? ORDER BY id DESC LIMIT 1", (coin,)
+            ).fetchone()
+            if not row:
+                continue
+            d = dict(row)
+            rsi = d.get("rsi_14") or 0
+            price = d.get("price") or 0
+            bb_lower = d.get("bb_lower") or 0
+            if not (rsi and price and bb_lower):
+                continue
+            rsi_gap = max(0, rsi - 30)  # 0이면 충족
+            bb_gap_pct = max(0, (price - bb_lower) / bb_lower * 100)
+            score = max(0, 1 - rsi_gap / 30) * 0.5 + max(0, 1 - bb_gap_pct / 10) * 0.5
+            if score >= 0.80:
+                candidates.append({
+                    "coin": coin, "rsi": rsi, "bb_gap_pct": bb_gap_pct, "score": score,
+                })
+
+        if not candidates:
+            return
+        candidates.sort(key=lambda c: -c["score"])
+
+        # 6시간 내 같은 코인 알림 중복 방지 — bot_config에 마지막 알림 시각 저장
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        new_alerts = []
+        for c in candidates:
+            key = f"alert_buy_imminent_{c['coin']}"
+            last = self._db.execute(
+                "SELECT value FROM bot_config WHERE key=?", (key,)
+            ).fetchone()
+            if last:
+                try:
+                    last_ts = datetime.fromisoformat(dict(last)["value"])
+                    if last_ts.tzinfo is None:
+                        last_ts = last_ts.replace(tzinfo=timezone.utc)
+                    if (now - last_ts).total_seconds() < 6 * 3600:
+                        continue
+                except Exception:
+                    pass
+            new_alerts.append(c)
+            # 알림 시각 기록 (UPSERT)
+            self._db.execute(
+                "INSERT INTO bot_config (key, value, value_type, category, display_name, description) "
+                "VALUES (?, ?, 'datetime', 'alert', '매수 임박 알림 시각', '#255: 6시간 쿨다운') "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, now.isoformat()),
+            )
+        self._db.commit()
+
+        if not new_alerts or not self._notifier:
+            return
+
+        lines = ["🎯 *매수 임박 코인* — 곧 매수 가능"]
+        for c in new_alerts[:3]:
+            short = c["coin"].replace("KRW-", "")
+            lines.append(
+                f">  *{short}*  ·  RSI `{c['rsi']:.1f}` (한 발자국)"
+                f"  ·  BB하단 +`{c['bb_gap_pct']:.2f}%`  ·  임박도 `{int(c['score']*100)}%`"
+            )
+        self._notifier.send("\n".join(lines))
+        logger.info("매수 임박 알림 전송: %d건", len(new_alerts))
 
     def _check_bot_liveness(self) -> dict:
         """BOT 프로세스 생존성 — 최근 5분 내 market_snapshot 기록 있는지."""
