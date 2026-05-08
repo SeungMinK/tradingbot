@@ -46,6 +46,9 @@ class StrategyParams:
     trailing_stop_pct: float = -3.0  # 트레일링 스탑 (%)
     position_size_pct: float = 100.0  # 포지션 크기 (잔고 대비 %)
     extra: dict = field(default_factory=dict)  # 전략별 추가 파라미터
+    # #254: 시장 식별자 (upbit/kis_kr/kis_us). 시장별 임계 적용 시 lookup용.
+    # 기본 'upbit' 코인 봇 호환성 100%. KIS 봇이 같은 전략 쓸 때 명시.
+    market: str = "upbit"
 
     # 시간 기반 ROI 테이블: {보유 분: 최소 수익%}
     # 보유 시간이 길어질수록 목표 수익을 낮춤
