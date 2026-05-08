@@ -21,6 +21,7 @@ def get_trades(
     coin: str | None = None,
     strategy: str | None = None,
     side: str | None = None,
+    market: str | None = None,  # #266 시장 필터
     date_from: str | None = None,
     date_to: str | None = None,
     _: UserResponse = Depends(get_current_user),
@@ -39,6 +40,13 @@ def get_trades(
     if side:
         conditions.append("t.side = ?")
         params.append(side)
+    if market:
+        # #266: market 컬럼은 #249에서 추가됨. NULL은 'upbit'로 간주.
+        if market == "upbit":
+            conditions.append("(t.market = 'upbit' OR t.market IS NULL)")
+        else:
+            conditions.append("t.market = ?")
+            params.append(market)
     if date_from:
         conditions.append("DATE(t.timestamp) >= ?")
         params.append(date_from)
