@@ -169,7 +169,7 @@ class KISUSBot:
 
 
 def main() -> None:
-    setup_logging()
+    setup_logging("bot_kis_us")  # #271: service 인자 필수
     KISUSBot().start()
 
 
