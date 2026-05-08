@@ -250,6 +250,16 @@ FastAPI + React Admin 8페이지, 멀티코인, 볼린저+RSI 복합, 수수료 
 - [ ] #85 DCA 안전 주문 (Freqtrade adjust_trade_position)
 - [ ] #86 Optuna 하이퍼파라미터 최적화 (Freqtrade Hyperopt)
 
+### Phase 6: 멀티 마켓 확장 — 한국주식 + 미국주식 (진행 중)
+
+코인 단일 → 코인 + 한국주식 + 미국주식 3개 시장 봇 확장. KIS Developers OpenAPI 기반.
+
+- [ ] #243 [Epic] 멀티 마켓 봇 확장 — 한국주식 + 미국주식 추가
+- [ ] #244 Exchange 추상화 레이어 리팩토링 (Upbit 어댑터 분리)
+- [ ] #245 DB 스키마 마이그레이션 — `market` 컬럼 추가
+- [ ] #246 한국주식 봇 — KIS OpenAPI 어댑터 + 듀얼모멘텀 전략
+- [ ] #247 미국주식 봇 — KIS 해외주식 어댑터 + Clenow 추세추종
+
 ---
 
 ## 라이선스
