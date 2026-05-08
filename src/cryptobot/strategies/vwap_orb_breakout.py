@@ -34,9 +34,14 @@ from cryptobot.strategies.base import BaseStrategy, Signal, StrategyInfo
 logger = logging.getLogger(__name__)
 KST = ZoneInfo("Asia/Seoul")
 
-# EOD = 매일 KST 09시 (사용자 정의 가능, env COIN_EOD_HOUR_KST)
-# 추천: 자정 ORB와 가까운 23시 (사이클 23시간 활용) 또는 09시 (사용자 일어남 직후 결과 확인)
-EOD_HOUR_KST = int(os.getenv("COIN_EOD_HOUR_KST", "9"))
+# EOD = 매일 KST N시 (사용자 정의 가능, env COIN_EOD_HOUR_KST)
+# 추천: 0시(자정, 사이클 24h) / 23시 / 9시. 호출 시점 평가 (env 변경 후 봇 재시작만 하면 반영).
+EOD_HOUR_KST = 9  # 디폴트 (테스트용 상수)
+
+
+def _eod_hour() -> int:
+    """현재 EOD 시간 (env 우선)."""
+    return int(os.getenv("COIN_EOD_HOUR_KST", str(EOD_HOUR_KST)))
 
 
 class VwapOrbBreakout(BaseStrategy):
@@ -144,7 +149,7 @@ def is_eod_window(now: datetime | None = None, window_minutes: int = 5) -> bool:
         now = datetime.now(KST)
     elif now.tzinfo is None:
         now = now.replace(tzinfo=KST)
-    eod = now.replace(hour=EOD_HOUR_KST, minute=0, second=0, microsecond=0)
+    eod = now.replace(hour=_eod_hour(), minute=0, second=0, microsecond=0)
     delta = abs((now - eod).total_seconds())
     return delta <= window_minutes * 60
 

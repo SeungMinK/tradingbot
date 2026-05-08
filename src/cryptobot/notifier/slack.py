@@ -101,8 +101,16 @@ class SlackNotifier:
             logger.error("Slack Webhook 전송 에러: %s", e)
             return False
 
+    def notify_trade_message(self, message: str) -> bool:
+        """#329: 자유형식 매매 알림 (KIS 봇 등 시장별 통화 다른 경우용).
+
+        호출자가 이미 formatted string 갖고 있을 때 사용.
+        예: "[KIS_US][매수] SOXL 1주 @ $171.50 — ORB↑..."
+        """
+        return self.send(message)
+
     def notify_trade(self, side: str, coin: str, price: float, amount: float, total_krw: float) -> bool:
-        """매매 체결 알림 (#197: 가독성 강화)."""
+        """매매 체결 알림 (#197: 가독성 강화). 코인 봇 KRW 전용."""
         emoji = "🟢" if side == "buy" else "🔴"
         side_kr = "매수" if side == "buy" else "매도"
         sym = coin.replace("KRW-", "")

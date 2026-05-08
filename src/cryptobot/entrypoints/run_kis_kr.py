@@ -253,7 +253,7 @@ class KISKoreanBot:
             order_uuid=result.order_uuid,
         )
         if self._notifier.is_configured:
-            self._notifier.notify_trade(
+            self._notifier.notify_trade_message(
                 f"[KIS_KR][매수] {symbol} {result.amount:.0f}주 @ {result.price:,.0f}원 — {reason}"
             )
 
@@ -277,7 +277,7 @@ class KISKoreanBot:
             order_uuid=result.order_uuid,
         )
         if self._notifier.is_configured:
-            self._notifier.notify_trade(
+            self._notifier.notify_trade_message(
                 f"[KIS_KR][매도] {symbol} {result.amount:.0f}주 "
                 f"@ {result.price:,.0f}원 ({pnl_pct:+.2f}%) — {reason}"
             )
