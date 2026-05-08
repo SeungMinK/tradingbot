@@ -23,8 +23,11 @@ USD 기반 거래:
   단타 노이즈 매매 회피용. 0이면 다음 틱부터 즉시 재매수 가능.
 - KIS_US_TICK_INTERVAL_SEC (기본 30). 봇 폴링 주기. 단타는 빠른 반응(30초)이 적절.
   너무 짧으면(<15초) KIS rate limit 우려.
-- KIS_US_OHLCV_INTERVAL (기본: 단타→"15min", 스윙→"day"). RSI/MA 계산용 봉 단위.
-  단타에 일봉 RSI는 시간 단위 mismatch — 15분봉이 적절.
+- KIS_US_OHLCV_INTERVAL (기본: 단타+breakout→"5min", 단타+meanrev→"15min", 스윙→"day").
+  RSI/MA/ORB/VWAP 계산용 봉 단위. ORB 5분봉 표준.
+- KIS_US_STRATEGY (기본: 단타→"breakout", 스윙→"mean_reversion").
+  - "breakout": VWAP + ORB(30분) + 거래량 spike (#303). 강세장 추세 추종.
+  - "mean_reversion": RSI≤35 + 가격<MA20 (#279). 횡보장 반등 잡기.
 
 사용법:
     python -m cryptobot.entrypoints.run_kis_us
@@ -47,6 +50,7 @@ from cryptobot.bot.kis_strategy import (
     KISStrategyParams,
     calc_position_size,
     evaluate_buy,
+    evaluate_buy_breakout,
     evaluate_sell,
 )
 from cryptobot.data.database import Database
@@ -161,8 +165,16 @@ class KISUSBot:
         self._tick_interval_sec = max(15, int(os.getenv("KIS_US_TICK_INTERVAL_SEC", str(DEFAULT_TICK_INTERVAL_SEC))))
         self._heartbeat_every_n_ticks = max(1, 300 // self._tick_interval_sec)  # ~5분에 한 번 살아있음 핑
         self._tick_count = 0
-        # #299: OHLCV 봉 단위 — 단타면 디폴트 15분봉, 스윙은 일봉
-        default_interval = "15min" if self._params.day_trading_mode else "day"
+        # #303 전략 선택 — 단타 디폴트 "breakout" (VWAP+ORB+거래량 spike)
+        default_strategy = "breakout" if self._params.day_trading_mode else "mean_reversion"
+        self._strategy = os.getenv("KIS_US_STRATEGY", default_strategy).strip().lower()
+        # OHLCV 봉 단위 — breakout은 5분봉 표준, meanrev는 15분봉, 스윙은 일봉
+        if self._strategy == "breakout":
+            default_interval = "5min"
+        elif self._params.day_trading_mode:
+            default_interval = "15min"
+        else:
+            default_interval = "day"
         self._ohlcv_interval = os.getenv("KIS_US_OHLCV_INTERVAL", default_interval).strip()
         self._running = False
         self._last_buy_price: dict[str, float] = {}  # USD 기준
@@ -193,6 +205,7 @@ class KISUSBot:
             )
         logger.info("폴링 주기: %d초", self._tick_interval_sec)
         logger.info("OHLCV 봉 단위: %s", self._ohlcv_interval)
+        logger.info("매수 전략: %s", self._strategy)
 
         if self._notifier.is_configured:
             self._notifier.notify_bot_status(f"[KIS_US] 미국주식 봇 시작 ({mode})")
@@ -381,7 +394,19 @@ class KISUSBot:
             logger.warning("%s OHLCV 조회 실패 — 매수 판단 스킵: %s", symbol, e)
             return
 
-        signal_ = evaluate_buy(df, price_usd, self._params)
+        # #303 전략 분기 — breakout (VWAP+ORB+거래량) vs mean_reversion (RSI)
+        if self._strategy == "breakout":
+            # 오늘 봉만 필터 (NY 09:30 이후) — VWAP/ORB는 당일 데이터 사용
+            ny_today = datetime.now(NY).date()
+            df_today = df[df.index.date == ny_today] if hasattr(df.index, "date") else df
+            try:
+                bar_min = int(self._ohlcv_interval.replace("min", ""))
+            except ValueError:
+                bar_min = 5
+            signal_ = evaluate_buy_breakout(df_today, price_usd, bar_minutes=bar_min, params=self._params)
+        else:
+            signal_ = evaluate_buy(df, price_usd, self._params)
+
         # 매 틱 평가 결과 DB 기록 (사용자 가시성)
         self._record_evaluation(symbol, price_usd, signal_, df=df, holds_already=False)
         if not signal_.should_buy:

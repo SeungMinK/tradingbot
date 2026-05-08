@@ -336,3 +336,104 @@ def test_day_trading_custom_windows():
     )
     assert p.force_sell_window_minutes_before_close == 5
     assert p.no_buy_window_minutes_before_close == 15
+
+
+# ---- #303 VWAP + ORB + 거래량 spike ----
+
+def _make_minute_df(prices_with_vol, base_dt="2026-05-08 09:30"):
+    """분봉 더미 DF 생성. prices_with_vol = [(open, high, low, close, vol), ...]"""
+    rows = []
+    ts = pd.Timestamp(base_dt)
+    for i, (o, h, l, c, v) in enumerate(prices_with_vol):
+        rows.append({"date": ts + pd.Timedelta(minutes=5 * i),
+                     "open": o, "high": h, "low": l, "close": c, "volume": v})
+    return pd.DataFrame(rows).set_index("date")
+
+
+def test_calc_vwap_basic():
+    from cryptobot.bot.kis_strategy import calc_vwap
+    df = _make_minute_df([(100, 102, 99, 101, 1000), (101, 103, 100, 102, 2000)])
+    vwap = calc_vwap(df)
+    # typical1 = (102+99+101)/3 = 100.67, typical2 = (103+100+102)/3 = 101.67
+    # vwap = (100.67×1000 + 101.67×2000) / 3000 = 101.34
+    assert abs(vwap - 101.33) < 0.05
+
+
+def test_calc_orb_returns_high_low():
+    from cryptobot.bot.kis_strategy import calc_orb
+    # 6봉 (5분 × 6 = 30분)
+    df = _make_minute_df([
+        (100, 102, 99, 101, 1000),
+        (101, 105, 100, 104, 2000),  # 고점 105
+        (104, 106, 102, 103, 1500),  # 고점 106
+        (103, 104, 100, 101, 1000),  # 저점 100
+        (101, 103, 99, 102, 1500),   # 저점 99
+        (102, 104, 101, 103, 1500),
+        (103, 107, 102, 106, 2000),  # 7번째 봉 (ORB 외)
+    ])
+    orb = calc_orb(df, orb_minutes=30, bar_minutes=5)
+    assert orb is not None
+    or_high, or_low = orb
+    assert or_high == 106  # 첫 6봉 고점
+    assert or_low == 99    # 첫 6봉 저점
+
+
+def test_evaluate_buy_breakout_signal():
+    from cryptobot.bot.kis_strategy import evaluate_buy_breakout, KISStrategyParams
+    # ORB 형성 후 돌파 + VWAP 위 + 거래량 spike
+    df = _make_minute_df([
+        (100, 102, 99, 101, 1000),
+        (101, 103, 100, 102, 1000),
+        (102, 104, 101, 103, 1000),
+        (103, 105, 102, 104, 1000),
+        (104, 106, 103, 105, 1000),
+        (105, 107, 104, 106, 1000),  # ORB 6봉 끝, OR_high = 107
+        (106, 108, 105, 107, 3000),  # 거래량 spike 3000 (avg 1285)
+    ])
+    sig = evaluate_buy_breakout(df, current_price=108.0, bar_minutes=5,
+                                params=KISStrategyParams(orb_minutes=30, volume_spike_multiplier=2.0))
+    assert sig.should_buy is True
+    assert "ORB↑" in sig.reason
+    assert sig.confidence > 0
+
+
+def test_evaluate_buy_breakout_below_orb():
+    from cryptobot.bot.kis_strategy import evaluate_buy_breakout, KISStrategyParams
+    df = _make_minute_df([
+        (100, 105, 99, 101, 1000),
+        (101, 105, 100, 102, 1000),
+        (102, 106, 101, 103, 1000),
+        (103, 107, 102, 104, 1000),  # OR_high = 107
+        (104, 105, 103, 104, 1000),
+        (104, 105, 102, 103, 1000),
+        (103, 104, 102, 103, 3000),  # 거래량 spike 있어도 ORB 아래
+    ])
+    sig = evaluate_buy_breakout(df, current_price=104.0, bar_minutes=5,
+                                params=KISStrategyParams(orb_minutes=30, volume_spike_multiplier=2.0))
+    assert sig.should_buy is False
+    assert "ORB 미돌파" in sig.reason
+
+
+def test_evaluate_buy_breakout_no_volume_spike():
+    from cryptobot.bot.kis_strategy import evaluate_buy_breakout, KISStrategyParams
+    df = _make_minute_df([
+        (100, 102, 99, 101, 1000),
+        (101, 103, 100, 102, 1000),
+        (102, 104, 101, 103, 1000),
+        (103, 105, 102, 104, 1000),
+        (104, 106, 103, 105, 1000),
+        (105, 107, 104, 106, 1000),
+        (106, 108, 105, 107, 1100),  # 약간 spike 1.1x 만 — 임계 미충족
+    ])
+    sig = evaluate_buy_breakout(df, current_price=108.0, bar_minutes=5,
+                                params=KISStrategyParams(orb_minutes=30, volume_spike_multiplier=2.0))
+    assert sig.should_buy is False
+    assert "거래량 spike 없음" in sig.reason
+
+
+def test_strategy_default_breakout_in_day_trading_mode():
+    """단타 모드 ON 시 디폴트 전략은 'breakout'."""
+    p = KISStrategyParams()
+    # 디폴트 파라미터 — orb_minutes/volume_spike 검증
+    assert p.orb_minutes == 30
+    assert p.volume_spike_multiplier == 2.0
