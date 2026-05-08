@@ -49,9 +49,13 @@ DEFAULT_KOSPI_UNIVERSE = [
     "005490",  # POSCO홀딩스
 ]
 
-# 매매 임계 (#250: 한국 주식은 거래세 0.18% 흡수 위해 4%+ 익절)
-TAKE_PROFIT_PCT = 4.0
-STOP_LOSS_PCT = -3.0
+# #254 2단계: 매매 임계는 profit_threshold 모듈 lookup (단일 진실의 원천).
+# 시장별 정의 변경 시 한 곳만 수정. 코인 봇과 일관된 임계 시스템.
+from cryptobot.bot.profit_threshold import get_thresholds as _get_thresholds  # noqa: E402
+
+_KR_THRESHOLDS = _get_thresholds("kis_kr")
+TAKE_PROFIT_PCT = _KR_THRESHOLDS.take_profit_pct  # 4.0
+STOP_LOSS_PCT = _KR_THRESHOLDS.stop_loss_pct  # -3.0
 TICK_INTERVAL_SEC = 60
 
 
