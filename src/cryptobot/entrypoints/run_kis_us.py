@@ -515,6 +515,10 @@ class KISUSBot:
             logger.warning("매수 실패: %s — %s", symbol, result.error)
             return
 
+        # #319: 잔고 캐시 무효화 (다음 매수 평가 시 정확한 USD 잔고)
+        if hasattr(self._exchange, "invalidate_balance_cache"):
+            self._exchange.invalidate_balance_cache()
+
         self._last_buy_price[symbol] = result.price
         self._highest_since_buy[symbol] = result.price
         # #305 ORB 모드: 매수 시그널의 stop_loss_price (OR_low) 저장
@@ -543,6 +547,10 @@ class KISUSBot:
         if not result.success:
             logger.warning("매도 실패: %s — %s", symbol, result.error)
             return
+
+        # #319: 잔고 캐시 무효화
+        if hasattr(self._exchange, "invalidate_balance_cache"):
+            self._exchange.invalidate_balance_cache()
 
         self._recorder.record_trade(
             coin=symbol,
