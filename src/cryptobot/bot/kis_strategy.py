@@ -74,6 +74,12 @@ class KISStrategyParams:
     day_trading_mode: bool = False
     no_buy_window_minutes_before_close: int = 30   # 마감 N분 전부터 신규 매수 X
     force_sell_window_minutes_before_close: int = 10  # 마감 N분 전 강제 매도
+    # #303 VWAP+ORB+거래량 spike 전략 파라미터
+    # 학술 근거: Zarattini & Aziz (2023) QQQ 5분 ORB → 누적 +1,484%/8년. TQQQ/SOXL 등 3X ETF 권장.
+    # 표준: RVOL 2~3x, R:R 1:2~1:3, 시간대 10:00~12:00 EST 가장 강함.
+    orb_minutes: int = 30                # ORB 형성 시간 (학술: 5~30분, 30분=노이즈 균형)
+    volume_spike_multiplier: float = 2.0 # 평균 거래량 × N 이상이면 spike (학술 권고 2~3x)
+    vwap_proximity_pct: float = 1.0      # 가격이 VWAP 위 N% 이내면 풀백 진입 가능
 
 
 def calc_position_size(
@@ -134,6 +140,114 @@ def _calc_ma(prices: pd.Series, period: int) -> float | None:
     if len(prices) < period:
         return None
     return float(prices.iloc[-period:].mean())
+
+
+def calc_vwap(df: pd.DataFrame) -> float | None:
+    """오늘 분봉 데이터로 VWAP (거래량 가중 평균가) 계산.
+
+    VWAP = Σ(Typical_Price × Volume) / Σ(Volume)
+    Typical_Price = (High + Low + Close) / 3
+
+    df는 오늘 봉만 들어와야 함 (호출자가 필터링).
+    """
+    if df is None or len(df) == 0:
+        return None
+    typical = (df["high"] + df["low"] + df["close"]) / 3
+    vol = df["volume"]
+    total_vol = vol.sum()
+    if total_vol <= 0:
+        return None
+    return float((typical * vol).sum() / total_vol)
+
+
+def calc_orb(df: pd.DataFrame, orb_minutes: int = 30, bar_minutes: int = 5) -> tuple[float, float] | None:
+    """ORB (Opening Range Breakout) 형성: 장 시작 후 N분의 고저점.
+
+    Args:
+        df: 오늘 분봉 데이터 (호출자가 NY 09:30 이후로 필터링)
+        orb_minutes: ORB 형성 시간 (기본 30분)
+        bar_minutes: 봉 단위 (기본 5분)
+
+    Returns:
+        (or_high, or_low) 또는 None (데이터 부족)
+    """
+    bars_needed = max(1, orb_minutes // bar_minutes)
+    if df is None or len(df) < bars_needed:
+        return None
+    or_window = df.iloc[:bars_needed]
+    return float(or_window["high"].max()), float(or_window["low"].min())
+
+
+def evaluate_buy_breakout(
+    df_today: pd.DataFrame,
+    current_price: float,
+    bar_minutes: int = 5,
+    params: KISStrategyParams = KISStrategyParams(),
+) -> KISBuySignal:
+    """#303 VWAP + ORB + 거래량 spike 단타 매수 평가.
+
+    매수 조건 (모두 충족):
+      1. ORB 돌파: 가격 > ORB 고점 (장 시작 후 N분 고점)
+      2. VWAP 강세: 가격 > VWAP (당일 거래량 가중 평균)
+      3. 거래량 spike: 직전 봉 거래량 > 평균 × multiplier
+      4. ORB 형성 완료 (장 시작 후 N분 경과)
+
+    Args:
+        df_today: 오늘 분봉 데이터 (NY 09:30 이후만)
+        current_price: 현재가
+        bar_minutes: 봉 단위 분 (5분봉 디폴트)
+        params: 전략 파라미터
+
+    Returns:
+        KISBuySignal
+    """
+    bars_needed = max(1, params.orb_minutes // bar_minutes)
+    if df_today is None or len(df_today) < bars_needed + 1:
+        return KISBuySignal(False, f"ORB 형성 중 (현재 {len(df_today) if df_today is not None else 0}/{bars_needed + 1}봉)")
+
+    orb = calc_orb(df_today, params.orb_minutes, bar_minutes)
+    if orb is None:
+        return KISBuySignal(False, "ORB 계산 불가")
+    or_high, or_low = orb
+
+    vwap = calc_vwap(df_today)
+    if vwap is None:
+        return KISBuySignal(False, "VWAP 계산 불가")
+
+    # 거래량 spike — 직전 봉 vs 평균
+    last_vol = float(df_today["volume"].iloc[-1])
+    avg_vol = float(df_today["volume"].mean())
+    spike_ratio = last_vol / avg_vol if avg_vol > 0 else 0.0
+
+    cond_orb = current_price > or_high
+    cond_vwap = current_price > vwap
+    cond_volume = spike_ratio >= params.volume_spike_multiplier
+
+    if not (cond_orb and cond_vwap and cond_volume):
+        miss = []
+        if not cond_orb:
+            miss.append(f"ORB 미돌파 (현재 ${current_price:.2f} ≤ OR고점 ${or_high:.2f})")
+        if not cond_vwap:
+            miss.append(f"VWAP 아래 (가격 ${current_price:.2f} < VWAP ${vwap:.2f})")
+        if not cond_volume:
+            miss.append(f"거래량 spike 없음 ({spike_ratio:.2f}x < {params.volume_spike_multiplier}x)")
+        return KISBuySignal(False, "조건 미충족: " + ", ".join(miss))
+
+    # 신뢰도: ORB 돌파폭 + VWAP 거리 + 거래량 spike
+    breakout_strength = (current_price - or_high) / or_high  # ORB 위 얼마나
+    vwap_strength = (current_price - vwap) / vwap            # VWAP 위 얼마나
+    conf = round(min(0.95,
+                     min(breakout_strength * 50, 0.4) +    # ORB 돌파 폭 0~0.4
+                     min(vwap_strength * 30, 0.3) +         # VWAP 위 0~0.3
+                     min((spike_ratio - 1) * 0.15, 0.25)),  # 거래량 spike 0~0.25
+                 2)
+
+    return KISBuySignal(
+        True,
+        f"ORB↑ ${or_high:.2f}→${current_price:.2f} (+{breakout_strength*100:.2f}%) | "
+        f"VWAP ${vwap:.2f} (+{vwap_strength*100:.2f}%) | 거래량 {spike_ratio:.1f}x",
+        confidence=max(conf, 0.3),
+    )
 
 
 def evaluate_buy(
