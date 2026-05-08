@@ -179,4 +179,3 @@ def test_default_params_match_doc():
     assert p.stop_loss_pct == -3.0
     assert p.trailing_stop_pct == -2.0
     assert p.max_position_per_symbol_pct == 30.0
-    assert p.rebuy_cooldown_hours == 24

@@ -6,7 +6,7 @@ NY 정규장 09:30~16:00 (KST 22:30~06:00, 서머타임 23:30~06:00) 동작.
 매매 룰 (`bot.kis_strategy` 모듈):
 - 매수: RSI≤35 AND 가격<MA20 AND 가격>MA60×0.92 AND 거래량 OK
 - 매도: 손절(-3%) → 트레일링 스탑(-2%) → 추세 기반 익절
-- 종목당 시드의 30% 한도 (소수점 매수 가능). 24h 재매수 금지.
+- 종목당 시드의 30% 한도 (소수점 매수 가능). 매수/매도 충돌은 분기 구조로 방지.
 
 사용법:
     python -m cryptobot.entrypoints.run_kis_us
@@ -20,7 +20,7 @@ import logging
 import signal
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from cryptobot.bot.config import config
@@ -65,7 +65,6 @@ US_PARAMS = KISStrategyParams(
     stop_loss_pct=-3.0,
     trailing_stop_pct=-2.0,
     max_position_per_symbol_pct=30.0,
-    rebuy_cooldown_hours=24,
 )
 
 
@@ -183,9 +182,6 @@ class KISUSBot:
             logger.debug("%s 보유 유지: %s", symbol, signal_.reason)
 
     def _evaluate_buy(self, symbol: str, price_usd: float) -> None:
-        if self._is_in_rebuy_cooldown(symbol):
-            return
-
         try:
             df = self._exchange.get_ohlcv(symbol, count=80)
         except APIError as e:
@@ -222,31 +218,6 @@ class KISUSBot:
             size_reason,
         )
         self._buy(symbol, qty, price_usd, signal_.reason)
-
-    def _is_in_rebuy_cooldown(self, symbol: str) -> bool:
-        cutoff = datetime.now(KST) - timedelta(hours=US_PARAMS.rebuy_cooldown_hours)
-        row = self._db.execute(
-            "SELECT MAX(timestamp) AS ts FROM trades "
-            "WHERE coin = ? AND market = 'kis_us' AND side = 'buy'",
-            (symbol,),
-        ).fetchone()
-        if not row:
-            return False
-        last_ts = dict(row).get("ts")
-        if not last_ts:
-            return False
-        try:
-            last_dt = datetime.fromisoformat(str(last_ts).replace("Z", "+00:00"))
-            if last_dt.tzinfo is None:
-                last_dt = last_dt.replace(tzinfo=KST)
-        except (TypeError, ValueError):
-            return False
-        if last_dt > cutoff:
-            logger.debug(
-                "%s 24h 재매수 쿨다운 (마지막 %s)", symbol, last_dt.strftime("%Y-%m-%d %H:%M")
-            )
-            return True
-        return False
 
     def _buy(self, symbol: str, qty: float, price_usd: float, reason: str) -> None:
         result = self._exchange.buy_market(symbol, qty)

@@ -6,7 +6,7 @@ KIS 한국주식 어댑터 + 코스피 우량주 풀 + 보수적 매매 룰 (#27
 매매 룰 (`bot.kis_strategy` 모듈):
 - 매수: RSI≤35 AND 가격<MA20 AND 가격>MA60×0.92 AND 거래량 OK
 - 매도: 손절(-3%) → 트레일링 스탑(-2% from peak) → 추세 기반 익절
-- 종목당 시드의 30% 한도 (1주 단위, 우량주). 24h 재매수 금지.
+- 종목당 시드의 30% 한도 (1주 단위, 우량주). 매수/매도 충돌은 분기 구조로 방지.
 
 사용법:
     python -m cryptobot.entrypoints.run_kis_kr
@@ -20,7 +20,7 @@ import logging
 import signal
 import sys
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from cryptobot.bot.config import config
@@ -65,7 +65,6 @@ KR_PARAMS = KISStrategyParams(
     stop_loss_pct=-3.0,
     trailing_stop_pct=-2.0,
     max_position_per_symbol_pct=40.0,  # 작은 시드 + 우량주 가격대 고려
-    rebuy_cooldown_hours=24,
 )
 
 
@@ -75,7 +74,7 @@ class KISKoreanBot:
     각 종목 60초마다 폴링 → kis_strategy 룰 매매.
     - 매수: 보수적 4중 조건. 시드의 max_position_per_symbol_pct% 한도, 1주 단위.
     - 매도: 손절/트레일링/추세 기반 익절.
-    - 24h 재매수 금지로 같은 종목 노이즈 회피.
+    - 매수/매도 충돌은 분기(`if holdings > 0`)로 구조적 차단 — 같은 틱에 양쪽 평가 X.
     """
 
     def __init__(self) -> None:
@@ -184,9 +183,6 @@ class KISKoreanBot:
             logger.debug("%s 보유 유지: %s", symbol, signal_.reason)
 
     def _evaluate_buy(self, symbol: str, price: float) -> None:
-        if self._is_in_rebuy_cooldown(symbol):
-            return
-
         try:
             df = self._exchange.get_ohlcv(symbol, count=80)
         except APIError as e:
@@ -223,31 +219,6 @@ class KISKoreanBot:
             size_reason,
         )
         self._buy(symbol, qty, price, signal_.reason)
-
-    def _is_in_rebuy_cooldown(self, symbol: str) -> bool:
-        cutoff = datetime.now(KST) - timedelta(hours=KR_PARAMS.rebuy_cooldown_hours)
-        row = self._db.execute(
-            "SELECT MAX(timestamp) AS ts FROM trades "
-            "WHERE coin = ? AND market = 'kis_kr' AND side = 'buy'",
-            (symbol,),
-        ).fetchone()
-        if not row:
-            return False
-        last_ts = dict(row).get("ts")
-        if not last_ts:
-            return False
-        try:
-            last_dt = datetime.fromisoformat(str(last_ts).replace("Z", "+00:00"))
-            if last_dt.tzinfo is None:
-                last_dt = last_dt.replace(tzinfo=KST)
-        except (TypeError, ValueError):
-            return False
-        if last_dt > cutoff:
-            logger.debug(
-                "%s 24h 재매수 쿨다운 (마지막 %s)", symbol, last_dt.strftime("%Y-%m-%d %H:%M")
-            )
-            return True
-        return False
 
     def _buy(self, symbol: str, qty: float, price: float, reason: str) -> None:
         result = self._exchange.buy_market(symbol, qty)
