@@ -208,17 +208,104 @@ export default function PublicDashboardPage() {
         ))}
       </div>
 
-      {tab === "kis" && (
-        <div style={{ padding: 32, textAlign: "center", border: "1px dashed var(--border-color, #ccc)", borderRadius: 12 }}>
-          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>📈 KIS 미국주식 봇</div>
-          <div style={{ fontSize: 13, color: "var(--text-secondary, #666)", marginBottom: 16 }}>
-            단타(데일리) 모드 운영 중. 누적 손익률 + 매매 내역 곧 추가 예정.
+      {tab === "kis" && (() => {
+        const kisTrades = trades.filter((t: any) => t.market === "kis_us" || t.market === "kis_kr");
+        const kisSells = kisTrades.filter((t: any) => t.side === "sell" && t.profit_pct != null);
+        const totalKisPct = kisSells.reduce((s: number, t: any) => s + (t.profit_pct || 0), 0);
+        const winCount = kisSells.filter((t: any) => (t.profit_pct || 0) > 0).length;
+        const lossCount = kisSells.filter((t: any) => (t.profit_pct || 0) < 0).length;
+        const winRate = kisSells.length > 0 ? (winCount / kisSells.length) * 100 : 0;
+        return (
+          <div>
+            {/* KIS 손익 요약 */}
+            <div className="pnl-hero">
+              <div className="pnl-hero-top">
+                <div>
+                  <div className="pnl-hero-title">KIS 미국주식 — 누적 손익률 (단타/EOD)</div>
+                  <div className="pnl-hero-value" style={{ color: totalKisPct > 0 ? "#34d399" : totalKisPct < 0 ? "#f87171" : "var(--text-secondary)" }}>
+                    {kisSells.length > 0
+                      ? `${totalKisPct >= 0 ? "+" : ""}${totalKisPct.toFixed(2)}%`
+                      : <span style={{ fontSize: 24 }}>매매 대기 중</span>}
+                  </div>
+                  <div className="pnl-hero-sub">
+                    체결 {kisSells.length}건 · 승률 {winRate.toFixed(0)}% (승 {winCount} / 패 {lossCount})
+                  </div>
+                </div>
+                <div className="pnl-hero-meta">
+                  <div className="pnl-hero-meta-item">
+                    <span>전략</span>
+                    <strong>Zarattini ORB</strong>
+                  </div>
+                  <div className="pnl-hero-meta-item">
+                    <span>봉 단위</span>
+                    <strong>5분봉</strong>
+                  </div>
+                  <div className="pnl-hero-meta-item">
+                    <span>모드</span>
+                    <strong>단타 (EOD 청산)</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* KIS 매매 내역 */}
+            <div className="card" style={{ marginTop: 16 }}>
+              <div className="card-title">KIS 매매 내역 (최근 30건)</div>
+              {kisTrades.length === 0 ? (
+                <div className="empty-state" style={{ padding: 32, textAlign: "center", color: "var(--text-muted, #888)" }}>
+                  아직 매매 없음. 봇이 ORB 돌파 + VWAP + 거래량 spike 신호 대기 중.
+                </div>
+              ) : (
+                <div className="table-container">
+                  <table>
+                    <colgroup>
+                      <col style={{ width: "20%" }} />
+                      <col style={{ width: "18%" }} />
+                      <col style={{ width: "12%" }} />
+                      <col style={{ width: "15%" }} />
+                      <col style={{ width: "35%" }} />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th>시간 (KST)</th>
+                        <th>종목</th>
+                        <th>방향</th>
+                        <th>수익률</th>
+                        <th>사유</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {kisTrades.slice(0, 30).map((t: any, i: number) => (
+                        <tr key={t.id || i}>
+                          <td style={{ fontSize: 11 }}>{formatDateTime(t.timestamp).replace(/\d{4}\. /, "")}</td>
+                          <td style={{ fontWeight: 600 }}>{t.coin}</td>
+                          <td>
+                            <span className={`badge ${t.side === "buy" ? "badge-green" : "badge-red"}`} style={{ fontSize: 10 }}>
+                              {t.side === "buy" ? "매수" : "매도"}
+                            </span>
+                          </td>
+                          <td className={t.profit_pct > 0 ? "positive" : t.profit_pct < 0 ? "negative" : ""}>
+                            {t.profit_pct != null ? `${t.profit_pct > 0 ? "+" : ""}${t.profit_pct.toFixed(2)}%` : "-"}
+                          </td>
+                          <td style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                            {(t.trigger_reason || "").slice(0, 80)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: 16, marginTop: 16, fontSize: 12, color: "var(--text-muted, #888)", textAlign: "center" }}>
+              📚 학술 근거: Zarattini & Aziz (2023) "Can Day Trading Really Be Profitable?"
+              <br />
+              QQQ 5분 ORB → 8년 누적 +1,484%. 현재 SOXL로 검증 진행 중.
+            </div>
           </div>
-          <div style={{ fontSize: 12, color: "var(--text-secondary, #888)" }}>
-            현재는 admin 대시보드(KIS 탭)에서 확인 가능합니다.
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {tab === "coin" && <>
       {/* #237 Hero: 누적 손익률 + 큰 차트 (전체 폭) */}

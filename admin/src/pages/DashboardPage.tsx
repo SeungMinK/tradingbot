@@ -129,18 +129,40 @@ export default function DashboardPage() {
         const totalCost = pos.reduce((s: number, p: any) => s + (p.total_krw || 0), 0);
         const totalValue = pos.reduce((s: number, p: any) => s + (p.amount || 0) * (p.current_price || 0), 0);
         const totalAsset = (balance?.krw_balance || 0) + totalValue;
-        // #218: 시작 금액은 capital_deposits 누적 합산 (백엔드에서 계산). 추가 입금 시 자동 반영.
-        // API에서 못 받아오면(레거시 등) 100,000 fallback — 그래도 손익 부호는 의미 있음.
+        // #218 + #307: 누적 입금 (capital_deposits 합산, 출금 -감산). 0이면 손익 계산 불가.
         const totalDeposits = balance?.total_deposits_krw && balance.total_deposits_krw > 0
           ? balance.total_deposits_krw
-          : 100000;
-        const totalPnl = totalAsset - totalDeposits;
+          : null;
+        const totalPnl = totalDeposits !== null ? totalAsset - totalDeposits : null;
+        const pnlPct = totalDeposits && totalDeposits > 0 && totalPnl !== null ? (totalPnl / totalDeposits) * 100 : null;
         return (
           <div className="kpi-grid">
-            <StatCard label="총 보유 자산" value={balance ? formatKRW(totalAsset) : "-"} sub={`KRW ${formatKRW(balance?.krw_balance || 0)} + 코인 ${formatKRW(totalValue)}`} />
-            <StatCard label="총 손익" value={`${formatKRW(totalPnl)} (${formatPercent(totalDeposits > 0 ? totalPnl / totalDeposits * 100 : 0)})`} valueClass={totalPnl >= 0 ? "positive" : "negative"} sub={`누적 입금 ₩${totalDeposits.toLocaleString()} 기준`} />
-            <StatCard label="매수 금액" value={formatKRW(totalCost)} sub={`${pos.length}종목 보유`} />
-            <StatCard label="평가 금액" value={formatKRW(totalValue)} valueClass={totalValue >= totalCost ? "positive" : "negative"} sub={totalCost > 0 ? `${formatPercent((totalValue - totalCost) / totalCost * 100)} 수익률` : ""} />
+            <StatCard
+              label="총 보유 자산 (코인 봇)"
+              value={balance ? formatKRW(totalAsset) : "-"}
+              sub={`KRW ${formatKRW(balance?.krw_balance || 0)} + 코인 ${formatKRW(totalValue)}`}
+            />
+            <StatCard
+              label="총 손익 (코인)"
+              value={totalPnl !== null && pnlPct !== null
+                ? `${formatKRW(totalPnl)} (${formatPercent(pnlPct)})`
+                : "기준 미설정"}
+              valueClass={totalPnl !== null ? (totalPnl >= 0 ? "positive" : "negative") : ""}
+              sub={totalDeposits !== null
+                ? `누적 입금 ₩${totalDeposits.toLocaleString()} 기준`
+                : "입금 이력 없음"}
+            />
+            <StatCard
+              label="매수 금액"
+              value={formatKRW(totalCost)}
+              sub={pos.length > 0 ? `${pos.length}종목 보유` : "보유 없음"}
+            />
+            <StatCard
+              label="평가 금액"
+              value={formatKRW(totalValue)}
+              valueClass={totalValue > totalCost ? "positive" : totalValue < totalCost ? "negative" : ""}
+              sub={totalCost > 0 ? `${formatPercent((totalValue - totalCost) / totalCost * 100)} 수익률` : "포지션 없음"}
+            />
           </div>
         );
       })()}
@@ -470,36 +492,47 @@ export default function DashboardPage() {
             <thead>
               <tr>
                 <th style={{ textAlign: "left", padding: 6 }}>시장</th>
-                <th style={{ textAlign: "right", padding: 6 }}>시드(장부)</th>
-                <th style={{ textAlign: "right", padding: 6 }}>실현 PnL</th>
+                <th style={{ textAlign: "right", padding: 6 }}>실 잔고 (API)</th>
+                <th style={{ textAlign: "right", padding: 6 }}>실현 손익</th>
                 <th style={{ textAlign: "right", padding: 6 }}>보유 원가</th>
-                <th style={{ textAlign: "right", padding: 6 }}>장부 가용</th>
-                <th style={{ textAlign: "right", padding: 6 }}>실제 잔고 (API)</th>
+                <th style={{ textAlign: "left", padding: 6 }}>봇 상태</th>
               </tr>
             </thead>
             <tbody>
-              {marketCapital.markets.map((m: any) => (
-                <tr key={m.market}>
-                  <td style={{ padding: 6, fontWeight: 600 }}>
-                    {m.market === "kis_kr" ? "🇰🇷 한국주식" : "🇺🇸 미국주식"}
-                  </td>
-                  <td style={{ textAlign: "right", padding: 6 }}>{Number(m.seed).toLocaleString()}원</td>
-                  <td style={{ textAlign: "right", padding: 6 }} className={m.realized_pnl >= 0 ? "positive" : "negative"}>
-                    {m.realized_pnl >= 0 ? "+" : ""}{Number(m.realized_pnl).toLocaleString()}원
-                  </td>
-                  <td style={{ textAlign: "right", padding: 6 }}>{Number(m.held_cost).toLocaleString()}원</td>
-                  <td style={{ textAlign: "right", padding: 6 }}>{Number(m.available).toLocaleString()}원</td>
-                  <td style={{ textAlign: "right", padding: 6, fontWeight: 700, color: "var(--accent)" }}>
-                    {m.live?.available != null
-                      ? `${Number(m.live.available).toLocaleString()} ${m.live.currency || ""}`
-                      : <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>조회불가</span>}
-                  </td>
-                </tr>
-              ))}
+              {marketCapital.markets.map((m: any) => {
+                const tradingEnabled = m.market === "kis_us"; // TODO: market-universe API에서 실제 토글 가져오기
+                return (
+                  <tr key={m.market} style={{ opacity: tradingEnabled ? 1 : 0.6 }}>
+                    <td style={{ padding: 6, fontWeight: 600 }}>
+                      {m.market === "kis_kr" ? "🇰🇷 한국주식" : "🇺🇸 미국주식"}
+                    </td>
+                    <td style={{ textAlign: "right", padding: 6, fontWeight: 700, color: "var(--accent)" }}>
+                      {m.live?.available != null
+                        ? `${Number(m.live.available).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${m.live.currency || ""}`
+                        : <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>조회불가</span>}
+                    </td>
+                    <td style={{ textAlign: "right", padding: 6 }} className={m.realized_pnl > 0 ? "positive" : m.realized_pnl < 0 ? "negative" : ""}>
+                      {m.realized_pnl !== 0
+                        ? `${m.realized_pnl > 0 ? "+" : ""}${Number(m.realized_pnl).toLocaleString()}원`
+                        : <span style={{ color: "var(--text-muted)" }}>-</span>}
+                    </td>
+                    <td style={{ textAlign: "right", padding: 6 }}>
+                      {m.held_cost > 0
+                        ? `${Number(m.held_cost).toLocaleString()}원`
+                        : <span style={{ color: "var(--text-muted)" }}>-</span>}
+                    </td>
+                    <td style={{ padding: 6, fontSize: 11 }}>
+                      {tradingEnabled
+                        ? <span style={{ color: "#10b981" }}>✅ 봇 거래 활성</span>
+                        : <span style={{ color: "var(--text-muted)" }}>⏸️ 거래 OFF</span>}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
-            💡 <strong>실제 잔고 (API)</strong>가 봇이 매수에 쓰는 진짜 예산. 장부값은 입출금 이력 추적용.
+            💡 <strong>실 잔고 (API)</strong>가 봇이 매수에 쓰는 예산. 입출금 이력은 위 버튼으로 기록.
           </div>
         </div>
       )}
