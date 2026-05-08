@@ -414,6 +414,18 @@ class KISUSBot:
             df = self._exchange.get_ohlcv(symbol, interval=self._ohlcv_interval, count=80)
         except APIError as e:
             logger.warning("%s OHLCV 조회 실패 — 매수 판단 스킵: %s", symbol, e)
+            # #311: 사용자 가시성 — OHLCV 실패도 평가 기록 (KIS 분봉 미지원 종목 식별용)
+            err_msg = str(e)[:120]
+            try:
+                self._db.execute(
+                    "INSERT INTO kis_us_evaluations "
+                    "(ticker, price, rsi, ma20, ma60, should_buy, reason, confidence, holds_already) "
+                    "VALUES (?, ?, NULL, NULL, NULL, 0, ?, 0, 0)",
+                    (symbol, float(price_usd), f"OHLCV 조회 실패: {err_msg}"),
+                )
+                self._db.commit()
+            except Exception:
+                pass
             return None, None
 
         # #303 전략 분기 — breakout (VWAP+ORB+거래량) vs mean_reversion (RSI)
