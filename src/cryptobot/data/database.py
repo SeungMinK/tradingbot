@@ -1076,6 +1076,79 @@ class Database:
                     row,
                 )
 
+            # #311: 추가 종목 (idempotent) + display_name 한국어로 update
+            _additional = [
+                # 반도체 추가
+                ("MU",   "마이크론",          "NASD", 0, "semi",    0, "메모리 반도체"),
+                ("INTC", "인텔",              "NASD", 0, "semi",    0, "x86 반도체"),
+                ("QCOM", "퀄컴",              "NASD", 0, "semi",    0, "모바일 칩셋"),
+                ("AMAT", "어플라이드머티리얼", "NASD", 0, "semi",    0, "반도체 장비"),
+                # 빅테크 추가
+                ("CRM",  "세일즈포스",        "NYSE", 0, "bigtech", 0, "SaaS 1위"),
+                ("ORCL", "오라클",            "NYSE", 0, "bigtech", 0, "DB/클라우드"),
+                ("NOW",  "서비스나우",        "NYSE", 0, "bigtech", 0, "SaaS 워크플로우"),
+                ("ADBE", "어도비",            "NASD", 0, "bigtech", 0, "디자인 SW"),
+                # 바이오/헬스
+                ("LLY",  "일라이릴리",        "NYSE", 0, "bio",     0, "비만치료제 1위"),
+                ("UNH",  "유나이티드헬스",    "NYSE", 0, "bio",     0, "보험 1위"),
+                # 금융
+                ("JPM",  "JP모건",            "NYSE", 0, "finance", 0, "최대 은행"),
+                ("BAC",  "뱅크오브아메리카",  "NYSE", 0, "finance", 0, "은행"),
+                ("V",    "비자",              "NYSE", 0, "finance", 0, "결제 1위"),
+                ("MA",   "마스터카드",        "NYSE", 0, "finance", 0, "결제 2위"),
+                # 소비재
+                ("WMT",  "월마트",            "NYSE", 0, "consumer", 0, "유통 1위"),
+                ("COST", "코스트코",          "NASD", 0, "consumer", 0, "회원제 마트"),
+                ("MCD",  "맥도날드",          "NYSE", 0, "consumer", 0, "패스트푸드"),
+                ("KO",   "코카콜라",          "NYSE", 0, "consumer", 0, "음료"),
+                # 에너지
+                ("XOM",  "엑손모빌",          "NYSE", 0, "energy",  0, "정유"),
+                ("CVX",  "쉐브론",            "NYSE", 0, "energy",  0, "정유"),
+                # ETF (1X 시장 노출)
+                ("SOXX", "iShares 반도체 ETF","NASD", 0, "etf",     0, "반도체 1X"),
+                ("SMH",  "VanEck 반도체 ETF", "NASD", 0, "etf",     0, "반도체 1X"),
+                ("ARKK", "ARK 혁신 ETF",      "AMEX", 0, "etf",     0, "성장주 ETF"),
+                ("XLK",  "기술 섹터 ETF",     "AMEX", 0, "etf",     0, "기술 섹터"),
+                ("XLF",  "금융 섹터 ETF",     "AMEX", 0, "etf",     0, "금융 섹터"),
+                ("XLV",  "헬스케어 섹터 ETF", "AMEX", 0, "etf",     0, "헬스 섹터"),
+                ("IWM",  "Russell 2000 ETF", "AMEX", 0, "etf",     0, "소형주"),
+                # 인기 단타 종목
+                ("ABNB", "에어비앤비",        "NASD", 0, "ai",      0, "여행/숙박"),
+                ("UBER", "우버",              "NYSE", 0, "ai",      0, "라이드쉐어"),
+                ("SHOP", "쇼피파이",          "NYSE", 0, "ai",      0, "이커머스 SaaS"),
+                ("DIS",  "디즈니",            "NYSE", 0, "consumer", 0, "엔터테인먼트"),
+            ]
+            for row in _additional:
+                conn.execute(
+                    "INSERT OR IGNORE INTO kis_us_symbols "
+                    "(ticker, display_name, exchange, is_integer_only, category, enabled, note) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    row,
+                )
+
+            # #311: 기존 영문 display_name 한국어로 update (한 번만)
+            _korean_names = {
+                "AAPL": "애플", "MSFT": "마이크로소프트", "GOOGL": "구글(알파벳)",
+                "AMZN": "아마존", "META": "메타(페이스북)",
+                "NVDA": "엔비디아", "AMD": "AMD", "TSM": "TSMC", "AVGO": "브로드컴",
+                "ASML": "ASML", "SNDK": "샌디스크",
+                "SOXL": "반도체 강세 3X", "SOXS": "반도체 약세 3X",
+                "TQQQ": "나스닥 강세 3X", "SQQQ": "나스닥 약세 3X",
+                "USD": "반도체 강세 2X", "TECL": "기술주 강세 3X",
+                "NVDL": "엔비디아 강세 2X", "SNXX": "샌디스크 강세 2X",
+                "SPXL": "S&P500 강세 3X", "SPXS": "S&P500 약세 3X",
+                "TSLL": "테슬라 강세 2X", "LABU": "바이오 강세 3X", "LABD": "바이오 약세 3X",
+                "COIN": "코인베이스", "MSTR": "마이크로스트래티지", "HOOD": "로빈후드",
+                "TSLA": "테슬라", "RIVN": "리비안",
+                "PLTR": "팔란티어", "ARM": "암 홀딩스", "NFLX": "넷플릭스",
+                "QQQ": "나스닥100 ETF", "SPY": "S&P500 ETF", "VOO": "뱅가드 S&P500",
+            }
+            for ticker, korean in _korean_names.items():
+                conn.execute(
+                    "UPDATE kis_us_symbols SET display_name = ? WHERE ticker = ? AND display_name != ?",
+                    (korean, ticker, korean),
+                )
+
             # 코인 카테고리별 전략 기본값
             row = conn.execute("SELECT COUNT(*) FROM coin_strategy_config").fetchone()
             if row[0] == 0:

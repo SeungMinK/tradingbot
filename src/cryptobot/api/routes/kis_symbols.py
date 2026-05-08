@@ -13,7 +13,12 @@ router = APIRouter(prefix="/api/kis-symbols", tags=["kis-symbols"])
 
 @router.get("")
 def list_symbols(_: UserResponse = Depends(get_current_user)):
-    """전체 종목 목록 (활성/비활성 포함). 카테고리별 정렬."""
+    """전체 종목 목록 (활성/비활성 포함). 카테고리별 정렬.
+
+    #311: minute_supported 필드 추가 — KIS 분봉 미지원 종목은 admin UI에서 dim 처리.
+    """
+    from cryptobot.exchange.kis_us import KIS_MINUTE_UNSUPPORTED
+
     db = get_db()
     rows = db.execute(
         """
@@ -23,7 +28,12 @@ def list_symbols(_: UserResponse = Depends(get_current_user)):
         ORDER BY enabled DESC, category, ticker
         """
     ).fetchall()
-    return [dict(r) for r in rows]
+    result = []
+    for r in rows:
+        d = dict(r)
+        d["minute_supported"] = d["ticker"] not in KIS_MINUTE_UNSUPPORTED
+        result.append(d)
+    return result
 
 
 @router.post("/toggle")

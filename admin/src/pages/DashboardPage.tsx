@@ -612,40 +612,56 @@ export default function DashboardPage() {
               활성 {kisSymbols.filter((s: any) => s.enabled).length}/{kisSymbols.length}종목 — 봇 5분마다 풀 재로딩 (재시작 불요)
             </span>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 6, marginTop: 8 }}>
-            {kisSymbols.map((s: any) => (
-              <label
-                key={s.ticker}
-                style={{
-                  display: "flex", alignItems: "center", gap: 8,
-                  padding: "6px 10px", borderRadius: 6,
-                  background: s.enabled ? "rgba(74,158,255,0.12)" : "var(--bg-secondary)",
-                  border: s.enabled ? "1px solid #4a9eff" : "1px solid var(--border)",
-                  cursor: "pointer", fontSize: 12,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={!!s.enabled}
-                  onChange={async (e) => {
-                    await client.post("/kis-symbols/toggle", { ticker: s.ticker, enabled: e.target.checked });
-                    fetchAll();
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 6, marginTop: 8 }}>
+            {kisSymbols.map((s: any) => {
+              const supported = s.minute_supported !== false;
+              const disabled = !supported;
+              return (
+                <label
+                  key={s.ticker}
+                  title={disabled ? "KIS 분봉 미지원 — 활성화해도 봇이 평가 못함" : ""}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "6px 10px", borderRadius: 6,
+                    background: disabled
+                      ? "var(--bg-secondary)"
+                      : s.enabled ? "rgba(74,158,255,0.12)" : "var(--bg-secondary)",
+                    border: disabled
+                      ? "1px dashed var(--border)"
+                      : s.enabled ? "1px solid #4a9eff" : "1px solid var(--border)",
+                    cursor: disabled ? "not-allowed" : "pointer",
+                    fontSize: 12,
+                    opacity: disabled ? 0.4 : 1,
                   }}
-                />
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600 }}>
-                    {s.ticker}
-                    {s.is_integer_only ? <span style={{ fontSize: 9, marginLeft: 4, color: "#f59e0b" }}>1주</span> : null}
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!s.enabled}
+                    disabled={disabled}
+                    onChange={async (e) => {
+                      if (disabled) return;
+                      await client.post("/kis-symbols/toggle", { ticker: s.ticker, enabled: e.target.checked });
+                      fetchAll();
+                    }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600 }}>
+                      {s.ticker}
+                      {s.is_integer_only ? <span style={{ fontSize: 9, marginLeft: 4, color: "#f59e0b" }}>1주</span> : null}
+                      {disabled ? <span style={{ fontSize: 9, marginLeft: 4, color: "#ef4444" }}>분봉 미지원</span> : null}
+                    </div>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                      {s.display_name}{s.note ? ` — ${s.note}` : ""}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
-                    {s.display_name} · {s.exchange} · {s.category}
-                  </div>
-                </div>
-              </label>
-            ))}
+                </label>
+              );
+            })}
           </div>
           <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
-            💡 체크하면 봇 모니터링 풀에 추가. 종목당 한도 = 100% / N (활성 종목 수). 신규 추가는 SQL/API로 (POST /api/kis-symbols).
+            💡 체크하면 봇 모니터링 풀에 추가. 종목당 한도 100% (자금 부족 시 신뢰도 높은 것 우선).
+            <br />
+            ⚠️ <span style={{ color: "#ef4444" }}>분봉 미지원</span> 종목은 KIS API 제약으로 봇이 평가 불가 (활성화 X).
           </div>
         </div>
       )}
