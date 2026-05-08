@@ -1126,6 +1126,19 @@ class Database:
                     row,
                 )
 
+            # #315: KIS 분봉 미지원 종목은 활성화돼있어도 강제 비활성 (봇 평가 불가)
+            try:
+                from cryptobot.exchange.kis_us import KIS_MINUTE_UNSUPPORTED
+                for ticker in KIS_MINUTE_UNSUPPORTED:
+                    cur = conn.execute(
+                        "UPDATE kis_us_symbols SET enabled = 0 WHERE ticker = ? AND enabled = 1",
+                        (ticker,),
+                    )
+                    if cur.rowcount > 0:
+                        logger.info("#315: %s 분봉 미지원 → 강제 비활성", ticker)
+            except Exception as e:
+                logger.warning("#315 미지원 종목 정리 실패: %s", e)
+
             # #311: 기존 영문 display_name 한국어로 update (한 번만)
             _korean_names = {
                 "AAPL": "애플", "MSFT": "마이크로소프트", "GOOGL": "구글(알파벳)",

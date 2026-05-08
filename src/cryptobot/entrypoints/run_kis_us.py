@@ -83,22 +83,28 @@ def _parse_universe(db: "Database | None" = None) -> list[str]:
     """종목 풀 결정. 우선순위: DB(kis_us_symbols.enabled) > env KIS_US_UNIVERSE > DEFAULT.
 
     #297: DB 기반 종목 관리 — admin에서 토글하면 봇 재시작 없이 다음 틱부터 반영.
-    DB가 비어있거나 enabled 종목 0건이면 env fallback.
+    #315: 분봉 미지원 종목은 자동 필터 (DB enabled=1이라도 봇 평가 불가하므로 제외).
     """
+    from cryptobot.exchange.kis_us import KIS_MINUTE_UNSUPPORTED
+
+    candidates: list[str]
     if db is not None:
         try:
             rows = db.execute(
                 "SELECT ticker FROM kis_us_symbols WHERE enabled = 1 ORDER BY ticker"
             ).fetchall()
             if rows:
-                return [dict(r)["ticker"] for r in rows]
+                candidates = [dict(r)["ticker"] for r in rows]
+                return [t for t in candidates if t not in KIS_MINUTE_UNSUPPORTED]
         except Exception:
             pass  # DB 조회 실패 시 env로 fallback
 
     raw = os.getenv("KIS_US_UNIVERSE", "").strip()
-    if not raw:
-        return list(DEFAULT_US_UNIVERSE)
-    return [s.strip().upper() for s in raw.split(",") if s.strip()]
+    if raw:
+        candidates = [s.strip().upper() for s in raw.split(",") if s.strip()]
+    else:
+        candidates = list(DEFAULT_US_UNIVERSE)
+    return [t for t in candidates if t not in KIS_MINUTE_UNSUPPORTED]
 
 
 def _build_params(universe_size: int) -> KISStrategyParams:
