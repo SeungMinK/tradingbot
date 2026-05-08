@@ -148,19 +148,27 @@ class KISUSExchange(Exchange):
         """자산별 잔고.
 
         Args:
-            asset: "USD"(예수금) / "KRW"(원화 예수금) / 종목 ticker (예: "NVDA")
-        """
-        data = self._inquire_balance()
+            asset: "USD"(외화예수금) / "KRW"(원화예수금) / 종목 ticker (예: "NVDA")
 
-        if asset in ("USD", "KRW"):
-            output2 = data.get("output2", {})
-            if asset == "USD":
-                # frcr_dncl_amt1 = 외화예수금
-                return float(output2.get("frcr_dncl_amt1", 0))
-            # KRW 예수금
-            return float(output2.get("krw_dncl_amt", 0))
+        USD/KRW 예수금은 inquire-present-balance API의 output2/output3에서 조회.
+        - output2: 통화별 외화 잔고 (USD 단위 frcr_dncl_amt_2)
+        - output3.tot_dncl_amt: 원화예수금 (KRW)
+        종목 보유는 inquire-balance API의 output1.
+        """
+        if asset == "USD":
+            present = self._inquire_present_balance()
+            for row in present.get("output2") or []:
+                if row.get("crcy_cd") == "USD":
+                    return float(row.get("frcr_dncl_amt_2", 0))
+            return 0.0
+
+        if asset == "KRW":
+            present = self._inquire_present_balance()
+            output3 = present.get("output3") or {}
+            return float(output3.get("tot_dncl_amt", 0))
 
         # 종목별 보유 수량 (소수점 가능)
+        data = self._inquire_balance()
         for row in data.get("output1", []):
             if row.get("ovrs_pdno") == asset:
                 return float(row.get("ovrs_cblc_qty", 0))
@@ -424,3 +432,47 @@ class KISUSExchange(Exchange):
                 "CTX_AREA_NK200": "",
             },
         )
+
+    def _inquire_present_balance(self) -> dict:
+        """해외주식 현재잔고 조회 — 외화예수금/원화예수금/환율 포함.
+
+        TR_ID: CTRP6504R (실전 전용. 모의 미지원).
+
+        응답 구조:
+        - output2[]: 통화별 외화 잔고
+            * crcy_cd: USD
+            * frcr_dncl_amt_2: 외화예수금 (USD 단위)
+            * frst_bltn_exrt: 환율 (KRW/USD)
+            * frcr_drwg_psbl_amt_1: 외화 출금가능금액
+        - output3: 계좌 요약
+            * tot_dncl_amt: 원화예수금
+            * tot_asst_amt: 총자산 (KRW)
+            * frcr_evlu_tota: 외화평가총액 (KRW 환산)
+        """
+        if self._is_paper:
+            # 모의는 CTRP6504R 미지원 — 빈 응답 반환
+            return {"output2": [], "output3": {}}
+        return self._client.get(
+            "/uapi/overseas-stock/v1/trading/inquire-present-balance",
+            tr_id="CTRP6504R",
+            params={
+                "CANO": self._cano,
+                "ACNT_PRDT_CD": self._acnt_prdt_cd,
+                "WCRC_FRCR_DVSN_CD": "02",  # 02=외화 기준
+                "NATN_CD": "840",            # 840=미국
+                "TR_MKET_CD": "00",
+                "INQR_DVSN_CD": "00",
+            },
+        )
+
+    def get_fx_rate_krw_per_usd(self) -> float | None:
+        """현재 KRW/USD 환율 (KIS 잔고 응답의 frst_bltn_exrt). 조회 실패 시 None."""
+        try:
+            present = self._inquire_present_balance()
+            for row in present.get("output2") or []:
+                if row.get("crcy_cd") == "USD":
+                    rate = float(row.get("frst_bltn_exrt", 0))
+                    return rate if rate > 0 else None
+        except Exception as e:
+            logger.warning("FX rate 조회 실패: %s", e)
+        return None

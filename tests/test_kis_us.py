@@ -88,11 +88,16 @@ def test_get_current_price(tmp_path: Path):
 
 
 def test_get_balance_usd(tmp_path: Path):
+    """#287 변경: USD/KRW는 inquire-present-balance(CTRP6504R) 응답 사용."""
     ex = _build(tmp_path)
+    # inquire-present-balance 응답 — output2는 통화별 list, output3는 요약 dict
     fake = _mock_resp(
         {
             "output1": [],
-            "output2": {"frcr_dncl_amt1": "150.50", "krw_dncl_amt": "200000"},
+            "output2": [
+                {"crcy_cd": "USD", "frcr_dncl_amt_2": "150.50", "frst_bltn_exrt": "1450.80"}
+            ],
+            "output3": {"tot_dncl_amt": "200000", "frcr_evlu_tota": "218400"},
         }
     )
     with patch("requests.get", return_value=fake):

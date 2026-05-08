@@ -40,6 +40,8 @@ export default function PublicDashboardPage() {
   const [newsIndex, setNewsIndex] = useState(0);
   const [analysisIndex, setAnalysisIndex] = useState(0);
   const [showAllStrategies, setShowAllStrategies] = useState(false);
+  // #287 탭 (코인/KIS 분리)
+  const [tab, setTab] = useState<"coin" | "kis">("coin");
 
   const fetchAll = useCallback(() => {
     const base = API.replace(/\/api$/, "");
@@ -184,6 +186,41 @@ export default function PublicDashboardPage() {
         </div>
       </div>
 
+      {/* #287 탭 — 코인 / KIS */}
+      <div style={{ display: "flex", gap: 4, margin: "12px 0 16px", borderBottom: "1px solid var(--border-color, #ddd)" }}>
+        {([
+          { id: "coin", label: "🪙 코인 (Upbit)" },
+          { id: "kis", label: "📈 KIS 미국주식" },
+        ] as const).map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            style={{
+              padding: "10px 18px", border: "none", cursor: "pointer", fontSize: 14,
+              fontWeight: tab === t.id ? 700 : 500,
+              borderBottom: tab === t.id ? "2px solid #4a9eff" : "2px solid transparent",
+              background: "transparent",
+              color: tab === t.id ? "#4a9eff" : "var(--text-secondary, #666)",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "kis" && (
+        <div style={{ padding: 32, textAlign: "center", border: "1px dashed var(--border-color, #ccc)", borderRadius: 12 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>📈 KIS 미국주식 봇</div>
+          <div style={{ fontSize: 13, color: "var(--text-secondary, #666)", marginBottom: 16 }}>
+            단타(데일리) 모드 운영 중. 누적 손익률 + 매매 내역 곧 추가 예정.
+          </div>
+          <div style={{ fontSize: 12, color: "var(--text-secondary, #888)" }}>
+            현재는 admin 대시보드(KIS 탭)에서 확인 가능합니다.
+          </div>
+        </div>
+      )}
+
+      {tab === "coin" && <>
       {/* #237 Hero: 누적 손익률 + 큰 차트 (전체 폭) */}
       <div className="pnl-hero">
         <div className="pnl-hero-top">
@@ -758,6 +795,7 @@ export default function PublicDashboardPage() {
           </div>
         </div>
       )}
+      </>}
 
       {/* 면책 조항 + 푸터 */}
       <div style={{ textAlign: "center", padding: "48px 24px 24px", color: "var(--text-muted)", fontSize: 11, lineHeight: 1.8 }}>
