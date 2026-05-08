@@ -1,16 +1,17 @@
 """한국주식 봇 엔트리포인트.
 
-KIS 한국주식 어댑터 + 코스피 우량주 풀 + 단순 매매 루프.
+KIS 한국주식 어댑터 + 코스피 우량주 풀 + 보수적 매매 룰 (#279).
 정규장(평일 09:00~15:30 KST)에만 동작. 점심시간 휴장 없음.
+
+매매 룰 (`bot.kis_strategy` 모듈):
+- 매수: RSI≤35 AND 가격<MA20 AND 가격>MA60×0.92 AND 거래량 OK
+- 매도: 손절(-3%) → 트레일링 스탑(-2% from peak) → 추세 기반 익절
+- 종목당 시드의 30% 한도 (1주 단위, 우량주). 24h 재매수 금지.
 
 사용법:
     python -m cryptobot.entrypoints.run_kis_kr
 
-Related: #246
-
-다음 단계 (별도 이슈):
-- 코인 봇의 멀티전략 자동 선택·AI 시장분석·리스크 관리 모듈을 시장 무관 형태로 일반화 후 통합
-- 본 엔트리포인트는 1차 검증용 단순 봇 (단일 전략 + 종목별 60초 폴링)
+Related: #246, #279
 """
 
 from __future__ import annotations
@@ -19,10 +20,17 @@ import logging
 import signal
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from cryptobot.bot.config import config
+from cryptobot.bot.kis_strategy import (
+    KISStrategyParams,
+    calc_position_size,
+    evaluate_buy,
+    evaluate_sell,
+)
+from cryptobot.bot.market_budget import get_available_budget
 from cryptobot.data.database import Database
 from cryptobot.data.recorder import DataRecorder
 from cryptobot.exceptions import APIError, ConfigError
@@ -49,21 +57,26 @@ DEFAULT_KOSPI_UNIVERSE = [
     "005490",  # POSCO홀딩스
 ]
 
-# #254 2단계: 매매 임계는 profit_threshold 모듈 lookup (단일 진실의 원천).
-# 시장별 정의 변경 시 한 곳만 수정. 코인 봇과 일관된 임계 시스템.
-from cryptobot.bot.profit_threshold import get_thresholds as _get_thresholds  # noqa: E402
-
-_KR_THRESHOLDS = _get_thresholds("kis_kr")
-TAKE_PROFIT_PCT = _KR_THRESHOLDS.take_profit_pct  # 4.0
-STOP_LOSS_PCT = _KR_THRESHOLDS.stop_loss_pct  # -3.0
 TICK_INTERVAL_SEC = 60
+
+# 한국주식 보수적 파라미터 (작은 시드 대응 — 종목당 한도 40%)
+KR_PARAMS = KISStrategyParams(
+    rsi_oversold=35.0,
+    take_profit_pct=4.0,
+    stop_loss_pct=-3.0,
+    trailing_stop_pct=-2.0,
+    max_position_per_symbol_pct=40.0,  # 작은 시드 + 우량주 가격대 고려
+    rebuy_cooldown_hours=24,
+)
 
 
 class KISKoreanBot:
-    """KIS 한국주식 단순 봇.
+    """KIS 한국주식 보수적 봇 (#279).
 
-    각 종목 60초마다 폴링 → 단순 추세 룰 매매.
-    실제 매매 전 잔고/거래시간/리스크 체크.
+    각 종목 60초마다 폴링 → kis_strategy 룰 매매.
+    - 매수: 보수적 4중 조건. 시드의 max_position_per_symbol_pct% 한도, 1주 단위.
+    - 매도: 손절/트레일링/추세 기반 익절.
+    - 24h 재매수 금지로 같은 종목 노이즈 회피.
     """
 
     def __init__(self) -> None:
@@ -88,17 +101,27 @@ class KISKoreanBot:
         )
         self._universe = DEFAULT_KOSPI_UNIVERSE
         self._running = False
-        self._last_buy_price: dict[str, float] = {}  # 매수 평단 캐시
+        self._last_buy_price: dict[str, float] = {}
+        self._highest_since_buy: dict[str, float] = {}  # 트레일링 스탑용
 
     def start(self) -> None:
-        """봇 시작."""
-        logger.info("=== KIS 한국주식 봇 시작 ===")
+        logger.info("=== KIS 한국주식 봇 시작 (#279 보수적 룰) ===")
         logger.info("종목 풀: %s (%d개)", ", ".join(self._universe), len(self._universe))
         logger.info("모의투자: %s", config.kis.is_paper)
-        logger.info("익절/손절: +%.1f%% / %.1f%%", TAKE_PROFIT_PCT, STOP_LOSS_PCT)
+        logger.info(
+            "매수: RSI≤%.0f, 종목당 시드 %.0f%% 한도",
+            KR_PARAMS.rsi_oversold,
+            KR_PARAMS.max_position_per_symbol_pct,
+        )
+        logger.info(
+            "매도: 손절 %.1f%% / 트레일링 %.1f%% / 익절 %.1f%%(+추세)",
+            KR_PARAMS.stop_loss_pct,
+            KR_PARAMS.trailing_stop_pct,
+            KR_PARAMS.take_profit_pct,
+        )
 
         if self._notifier.is_configured:
-            self._notifier.notify_bot_status("[KIS_KR] 한국주식 봇 시작")
+            self._notifier.notify_bot_status("[KIS_KR] 한국주식 봇 시작 (보수적 룰)")
 
         signal.signal(signal.SIGINT, self._on_shutdown)
         signal.signal(signal.SIGTERM, self._on_shutdown)
@@ -114,7 +137,6 @@ class KISKoreanBot:
             time.sleep(TICK_INTERVAL_SEC)
 
     def _tick(self) -> None:
-        """매 틱 처리."""
         if not self._exchange.is_market_open():
             now = datetime.now(KST).strftime("%H:%M")
             logger.debug("정규장 외 시간 (%s KST). 스킵", now)
@@ -129,33 +151,126 @@ class KISKoreanBot:
                 logger.exception("%s 평가 중 예외: %s", symbol, e)
 
     def _evaluate_symbol(self, symbol: str) -> None:
-        """종목 1개에 대한 단순 매매 판단.
-
-        룰:
-        - 보유 중: 익절(+TAKE_PROFIT_PCT%) 또는 손절(STOP_LOSS_PCT%) 도달 시 매도
-        - 미보유: TODO — 다음 세션에서 코인 봇 strategies/ 모듈 통합 후 매수 신호 처리
-        """
         price = self._exchange.get_current_price(symbol)
         holdings = self._exchange.get_balance(symbol)
 
         if holdings > 0:
-            buy_price = self._last_buy_price.get(symbol)
-            if buy_price is None or buy_price <= 0:
-                # 매수 평단 캐시 미스 — 잔고 조회로 평단가 가져오기 (TODO)
-                logger.debug("%s 매수 평단 미상 — 매도 판단 스킵", symbol)
-                return
+            self._evaluate_sell(symbol, price)
+        else:
+            self._evaluate_buy(symbol, price)
 
+    def _evaluate_sell(self, symbol: str, price: float) -> None:
+        buy_price = self._last_buy_price.get(symbol)
+        if buy_price is None or buy_price <= 0:
+            logger.debug("%s 매수 평단 미상 — 매도 판단 스킵", symbol)
+            return
+
+        prev_high = self._highest_since_buy.get(symbol, buy_price)
+        if price > prev_high:
+            self._highest_since_buy[symbol] = price
+            prev_high = price
+
+        df = None
+        try:
+            df = self._exchange.get_ohlcv(symbol, count=80)
+        except APIError as e:
+            logger.warning("%s OHLCV 조회 실패 (매도 판단은 단순 룰로): %s", symbol, e)
+
+        signal_ = evaluate_sell(df, price, buy_price, prev_high, KR_PARAMS)
+        if signal_.should_sell:
             pnl_pct = (price - buy_price) / buy_price * 100
-            if pnl_pct >= TAKE_PROFIT_PCT:
-                logger.info("[익절] %s +%.2f%% (매수 %.0f → 현재 %.0f)", symbol, pnl_pct, buy_price, price)
-                self._sell(symbol, "take_profit", pnl_pct)
-            elif pnl_pct <= STOP_LOSS_PCT:
-                logger.info("[손절] %s %.2f%% (매수 %.0f → 현재 %.0f)", symbol, pnl_pct, buy_price, price)
-                self._sell(symbol, "stop_loss", pnl_pct)
-        # 매수 신호: 다음 세션에서 strategies/ 통합
+            logger.info("[매도/%s] %s — %s", symbol, signal_.reason, "익절" if signal_.is_profit_taking else "손절/트레일링")
+            self._sell(symbol, signal_.reason, pnl_pct)
+        else:
+            logger.debug("%s 보유 유지: %s", symbol, signal_.reason)
+
+    def _evaluate_buy(self, symbol: str, price: float) -> None:
+        if self._is_in_rebuy_cooldown(symbol):
+            return
+
+        try:
+            df = self._exchange.get_ohlcv(symbol, count=80)
+        except APIError as e:
+            logger.warning("%s OHLCV 조회 실패 — 매수 판단 스킵: %s", symbol, e)
+            return
+
+        signal_ = evaluate_buy(df, price, KR_PARAMS)
+        if not signal_.should_buy:
+            logger.debug("%s 매수 미판정: %s", symbol, signal_.reason)
+            return
+
+        budget = get_available_budget(self._db, "kis_kr")
+        qty, size_reason = calc_position_size(
+            available_budget_krw=budget,
+            current_price_krw=price,
+            fractional=False,
+            params=KR_PARAMS,
+        )
+        if qty <= 0:
+            logger.info("%s 매수 신호이나 사이즈 0 (%s) — 스킵", symbol, size_reason)
+            return
+
+        logger.info(
+            "[매수신호] %s @ %.0f원 — %s | conf=%.2f | %s",
+            symbol,
+            price,
+            signal_.reason,
+            signal_.confidence,
+            size_reason,
+        )
+        self._buy(symbol, qty, price, signal_.reason)
+
+    def _is_in_rebuy_cooldown(self, symbol: str) -> bool:
+        cutoff = datetime.now(KST) - timedelta(hours=KR_PARAMS.rebuy_cooldown_hours)
+        row = self._db.execute(
+            "SELECT MAX(timestamp) AS ts FROM trades "
+            "WHERE coin = ? AND market = 'kis_kr' AND side = 'buy'",
+            (symbol,),
+        ).fetchone()
+        if not row:
+            return False
+        last_ts = dict(row).get("ts")
+        if not last_ts:
+            return False
+        try:
+            last_dt = datetime.fromisoformat(str(last_ts).replace("Z", "+00:00"))
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=KST)
+        except (TypeError, ValueError):
+            return False
+        if last_dt > cutoff:
+            logger.debug(
+                "%s 24h 재매수 쿨다운 (마지막 %s)", symbol, last_dt.strftime("%Y-%m-%d %H:%M")
+            )
+            return True
+        return False
+
+    def _buy(self, symbol: str, qty: float, price: float, reason: str) -> None:
+        result = self._exchange.buy_market(symbol, qty)
+        if not result.success:
+            logger.warning("매수 실패: %s — %s", symbol, result.error)
+            return
+
+        self._last_buy_price[symbol] = result.price
+        self._highest_since_buy[symbol] = result.price
+        self._recorder.record_trade(
+            coin=symbol,
+            market="kis_kr",
+            side="buy",
+            price=result.price,
+            amount=result.amount,
+            total_krw=result.total_krw,
+            fee_krw=result.fee_krw,
+            strategy="kis_conservative",
+            trigger_reason=reason,
+            order_uuid=result.order_uuid,
+        )
+        if self._notifier.is_configured:
+            self._notifier.notify_trade(
+                f"[KIS_KR][매수] {symbol} {result.amount:.0f}주 @ {result.price:,.0f}원 — {reason}"
+            )
 
     def _sell(self, symbol: str, reason: str, pnl_pct: float) -> None:
-        """매도 + 기록."""
         result = self._exchange.sell_market(symbol)
         if not result.success:
             logger.warning("매도 실패: %s — %s", symbol, result.error)
@@ -169,17 +284,18 @@ class KISKoreanBot:
             amount=result.amount,
             total_krw=result.total_krw,
             fee_krw=result.fee_krw,
-            strategy="simple_threshold",
+            strategy="kis_conservative",
             trigger_reason=reason,
             profit_pct=pnl_pct,
             order_uuid=result.order_uuid,
         )
         if self._notifier.is_configured:
             self._notifier.notify_trade(
-                f"[KIS_KR][매도/{reason}] {symbol} {result.amount:.0f}주 "
-                f"@ {result.price:,.0f}원 (수익률 {pnl_pct:+.2f}%)"
+                f"[KIS_KR][매도] {symbol} {result.amount:.0f}주 "
+                f"@ {result.price:,.0f}원 ({pnl_pct:+.2f}%) — {reason}"
             )
         self._last_buy_price.pop(symbol, None)
+        self._highest_since_buy.pop(symbol, None)
 
     def _on_shutdown(self, *_args) -> None:
         logger.info("=== KIS 한국주식 봇 종료 신호 ===")
@@ -190,7 +306,7 @@ class KISKoreanBot:
 
 
 def main() -> None:
-    setup_logging("bot_kis_kr")  # #271: service 인자 필수
+    setup_logging("bot_kis_kr")
     KISKoreanBot().start()
 
 
