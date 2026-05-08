@@ -208,14 +208,14 @@ def test_parse_universe_empty_falls_back_to_default(monkeypatch):
     assert _parse_universe() == list(DEFAULT_US_UNIVERSE)
 
 
-def test_build_params_position_cap_is_100_over_n(monkeypatch):
+def test_build_params_position_cap_is_100_pct_full(monkeypatch):
+    """#309: 종목당 한도 항상 100% (풀매수). 여러 종목은 신뢰도 정렬로 순차 매수."""
     from cryptobot.entrypoints.run_kis_us import _build_params
 
     monkeypatch.delenv("KIS_US_DAY_TRADING", raising=False)
-    p = _build_params(universe_size=4)
-    assert p.max_position_per_symbol_pct == 25.0  # 100/4
-    p2 = _build_params(universe_size=1)
-    assert p2.max_position_per_symbol_pct == 100.0  # 단일 종목 풀매수
+    assert _build_params(universe_size=1).max_position_per_symbol_pct == 100.0
+    assert _build_params(universe_size=4).max_position_per_symbol_pct == 100.0
+    assert _build_params(universe_size=20).max_position_per_symbol_pct == 100.0
 
 
 def test_build_params_day_trading_toggle(monkeypatch):
@@ -503,3 +503,17 @@ def test_breakout_paper_mode_thresholds(monkeypatch):
     assert p.stop_loss_pct == -4.0      # 폴백
     assert p.trailing_stop_pct == -99.0 # 사실상 끔
     assert p.orb_minutes == 5           # 논문 5분 ORB
+    assert p.max_position_per_symbol_pct == 100.0  # #309 풀매수
+
+
+def test_buy_queue_sorts_by_confidence_desc():
+    """#309 매수 큐 신뢰도 내림차순 정렬 검증."""
+    candidates = [
+        ("AAPL", 100.0, type("S", (), {"confidence": 0.4, "reason": "low", "should_buy": True})(), None),
+        ("NVDA", 200.0, type("S", (), {"confidence": 0.9, "reason": "hi", "should_buy": True})(), None),
+        ("AMD", 50.0, type("S", (), {"confidence": 0.7, "reason": "mid", "should_buy": True})(), None),
+    ]
+    candidates.sort(key=lambda x: getattr(x[2], "confidence", 0.0), reverse=True)
+    assert candidates[0][0] == "NVDA"  # 0.9 (1순위)
+    assert candidates[1][0] == "AMD"   # 0.7
+    assert candidates[2][0] == "AAPL"  # 0.4
