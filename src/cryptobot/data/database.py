@@ -354,11 +354,7 @@ CREATE TABLE IF NOT EXISTS page_visits (
 CREATE INDEX IF NOT EXISTS idx_visits_at ON page_visits(visited_at DESC);
 CREATE INDEX IF NOT EXISTS idx_visits_session ON page_visits(session_id);
 
--- #245: 멀티 마켓 인덱스 (시장별 조회 최적화)
-CREATE INDEX IF NOT EXISTS idx_trades_market_ts ON trades(market, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_signals_market_ts ON trade_signals(market, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_snapshots_market_ts ON market_snapshots(market, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_daily_reports_market ON daily_reports(market, date DESC);
+-- #245 멀티 마켓 인덱스: market 컬럼 마이그레이션 *후* 생성 (initialize 마이그레이션 블록에서)
 """
 
 # 기본 전략 파라미터 (최초 1회 삽입)
@@ -1135,6 +1131,14 @@ class Database:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_timestamp ON trade_signals(timestamp)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_coin_side ON trades(coin, side)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_ohlcv_coin_date ON ohlcv_daily(coin, date)")
+            # #245: 멀티 마켓 인덱스 — market 컬럼 마이그레이션 *후* 생성 (시장별 조회 최적화)
+            try:
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_trades_market_ts ON trades(market, timestamp DESC)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_market_ts ON trade_signals(market, timestamp DESC)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_market_ts ON market_snapshots(market, timestamp DESC)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_daily_reports_market ON daily_reports(market, date DESC)")
+            except sqlite3.OperationalError as e:
+                logger.warning("멀티 마켓 인덱스 생성 스킵 (market 컬럼 미존재): %s", e)
 
             # 잔여 마이그레이션 테이블 정리
             conn.execute("DROP TABLE IF EXISTS market_snapshots_old")
