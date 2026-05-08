@@ -69,13 +69,17 @@ def get_market_universe(_: UserResponse = Depends(get_current_user)):
                 "symbols": list(DEFAULT_KOSPI_UNIVERSE),
                 "symbol_count": len(DEFAULT_KOSPI_UNIVERSE),
                 "strategy": {
-                    "name": "simple_take_profit_stop_loss",
-                    "display_name": "단순 익절/손절 (전략 모듈 미통합)",
+                    "name": "kis_conservative",
+                    "display_name": "KIS 보수적 전략 (#279)",
                     "params_json": None,
                 },
                 "rules": {
-                    "type": "simple_threshold",
-                    "description": "수동 매수 → 자동 익절/손절. 자동 매수는 #254 후속 작업.",
+                    "type": "kis_conservative",
+                    "description": (
+                        "매수: RSI≤35 AND 가격<MA20 AND 가격>MA60×0.92 AND 거래량 OK. "
+                        "매도: 손절(-3%) → 트레일링(-2%) → 추세 기반 익절. "
+                        "24h 재매수 금지, 종목당 시드 30~40% 한도."
+                    ),
                     "take_profit_pct": kr_th.take_profit_pct,
                     "stop_loss_pct": kr_th.stop_loss_pct,
                     "fee_guard_pct": kr_th.fee_guard_pct,
@@ -87,13 +91,17 @@ def get_market_universe(_: UserResponse = Depends(get_current_user)):
                 "symbols": list(DEFAULT_US_UNIVERSE),
                 "symbol_count": len(DEFAULT_US_UNIVERSE),
                 "strategy": {
-                    "name": "simple_take_profit_stop_loss",
-                    "display_name": "단순 익절/손절 (전략 모듈 미통합)",
+                    "name": "kis_conservative",
+                    "display_name": "KIS 보수적 전략 (#279)",
                     "params_json": None,
                 },
                 "rules": {
-                    "type": "simple_threshold",
-                    "description": "수동 매수 → 자동 익절/손절. 자동 매수는 #254 후속 작업.",
+                    "type": "kis_conservative",
+                    "description": (
+                        "매수: RSI≤35 AND 가격<MA20 AND 가격>MA60×0.92 AND 거래량 OK. "
+                        "매도: 손절(-3%) → 트레일링(-2%) → 추세 기반 익절. "
+                        "24h 재매수 금지, 종목당 시드 30~40% 한도."
+                    ),
                     "take_profit_pct": us_th.take_profit_pct,
                     "stop_loss_pct": us_th.stop_loss_pct,
                     "fee_guard_pct": us_th.fee_guard_pct,
