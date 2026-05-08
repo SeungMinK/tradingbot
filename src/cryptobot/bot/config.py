@@ -29,6 +29,21 @@ class UpbitConfig:
 
 
 @dataclass(frozen=True)
+class KISConfig:
+    """KIS Developers API 설정 (한국·미국 주식 공통)."""
+
+    app_key: str = field(default_factory=lambda: os.getenv("KIS_APP_KEY", ""))
+    app_secret: str = field(default_factory=lambda: os.getenv("KIS_APP_SECRET", ""))
+    account_number: str = field(default_factory=lambda: os.getenv("KIS_ACCOUNT_NUMBER", ""))
+    account_product_code: str = field(default_factory=lambda: os.getenv("KIS_ACCOUNT_PRODUCT_CODE", "01"))
+    is_paper: bool = field(default_factory=lambda: os.getenv("KIS_IS_PAPER", "false").lower() == "true")
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.app_key and self.app_secret and self.account_number)
+
+
+@dataclass(frozen=True)
 class SlackConfig:
     """Slack 알림 설정."""
 
@@ -57,6 +72,7 @@ class Config:
     """앱 전체 설정. NestJS의 ConfigService와 동일한 역할."""
 
     upbit: UpbitConfig = field(default_factory=UpbitConfig)
+    kis: KISConfig = field(default_factory=KISConfig)
     slack: SlackConfig = field(default_factory=SlackConfig)
     bot: BotConfig = field(default_factory=BotConfig)
 
