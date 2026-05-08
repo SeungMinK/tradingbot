@@ -179,3 +179,130 @@ def test_default_params_match_doc():
     assert p.stop_loss_pct == -3.0
     assert p.trailing_stop_pct == -2.0
     assert p.max_position_per_symbol_pct == 30.0
+    # #285 day trading 디폴트
+    assert p.day_trading_mode is False
+    assert p.no_buy_window_minutes_before_close == 30
+    assert p.force_sell_window_minutes_before_close == 10
+
+
+# ---- run_kis_us 헬퍼 (#285) ----
+
+def test_parse_universe_default(monkeypatch):
+    from cryptobot.entrypoints.run_kis_us import DEFAULT_US_UNIVERSE, _parse_universe
+
+    monkeypatch.delenv("KIS_US_UNIVERSE", raising=False)
+    assert _parse_universe() == list(DEFAULT_US_UNIVERSE)
+
+
+def test_parse_universe_from_env(monkeypatch):
+    from cryptobot.entrypoints.run_kis_us import _parse_universe
+
+    monkeypatch.setenv("KIS_US_UNIVERSE", "snxx, sndk ,nvda")
+    assert _parse_universe() == ["SNXX", "SNDK", "NVDA"]
+
+
+def test_parse_universe_empty_falls_back_to_default(monkeypatch):
+    from cryptobot.entrypoints.run_kis_us import DEFAULT_US_UNIVERSE, _parse_universe
+
+    monkeypatch.setenv("KIS_US_UNIVERSE", "   ")
+    assert _parse_universe() == list(DEFAULT_US_UNIVERSE)
+
+
+def test_build_params_position_cap_is_100_over_n(monkeypatch):
+    from cryptobot.entrypoints.run_kis_us import _build_params
+
+    monkeypatch.delenv("KIS_US_DAY_TRADING", raising=False)
+    p = _build_params(universe_size=4)
+    assert p.max_position_per_symbol_pct == 25.0  # 100/4
+    p2 = _build_params(universe_size=1)
+    assert p2.max_position_per_symbol_pct == 100.0  # 단일 종목 풀매수
+
+
+def test_build_params_day_trading_toggle(monkeypatch):
+    from cryptobot.entrypoints.run_kis_us import _build_params
+
+    monkeypatch.setenv("KIS_US_DAY_TRADING", "true")
+    p = _build_params(universe_size=2)
+    assert p.day_trading_mode is True
+
+    monkeypatch.setenv("KIS_US_DAY_TRADING", "false")
+    p2 = _build_params(universe_size=2)
+    assert p2.day_trading_mode is False
+
+
+def test_build_params_thresholds_overridable(monkeypatch):
+    from cryptobot.entrypoints.run_kis_us import _build_params
+
+    monkeypatch.setenv("KIS_US_TAKE_PROFIT_PCT", "20")
+    monkeypatch.setenv("KIS_US_STOP_LOSS_PCT", "-5")
+    monkeypatch.setenv("KIS_US_TRAILING_PCT", "-1.5")
+    p = _build_params(universe_size=5)
+    assert p.take_profit_pct == 20.0
+    assert p.stop_loss_pct == -5.0
+    assert p.trailing_stop_pct == -1.5
+
+
+# ---- DB 기반 거래 토글 (#285) ----
+
+def _setup_temp_db(tmp_path, monkeypatch):
+    """임시 DB로 봇 테스트 환경 셋업."""
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "test.db"))
+    # config 모듈 캐시 무효화
+    import importlib
+    from cryptobot.bot import config as config_mod
+    importlib.reload(config_mod)
+    from cryptobot.data.database import Database
+    db_path = tmp_path / "test.db"
+    db = Database(db_path)
+    db.initialize()
+    return db
+
+
+def test_db_toggle_default_kr_disabled(tmp_path, monkeypatch):
+    """#285: KR 거래 디폴트 false (시드 작을 때 1주 미만 회피)."""
+    db = _setup_temp_db(tmp_path, monkeypatch)
+    row = db.execute(
+        "SELECT value FROM bot_config WHERE key = 'kis_kr_trading_enabled'"
+    ).fetchone()
+    assert row is not None
+    assert dict(row)["value"] == "false"
+
+
+def test_db_toggle_default_us_enabled(tmp_path, monkeypatch):
+    db = _setup_temp_db(tmp_path, monkeypatch)
+    row = db.execute(
+        "SELECT value FROM bot_config WHERE key = 'kis_us_trading_enabled'"
+    ).fetchone()
+    assert row is not None
+    assert dict(row)["value"] == "true"
+
+
+def test_db_toggle_can_be_updated(tmp_path, monkeypatch):
+    db = _setup_temp_db(tmp_path, monkeypatch)
+    db.execute(
+        "UPDATE bot_config SET value = 'true' WHERE key = 'kis_kr_trading_enabled'"
+    )
+    db.commit()
+    row = db.execute(
+        "SELECT value FROM bot_config WHERE key = 'kis_kr_trading_enabled'"
+    ).fetchone()
+    assert dict(row)["value"] == "true"
+
+
+# ---- 단타모드 시간 창 (#285) ----
+
+def test_day_trading_force_sell_window():
+    """force_sell_window_minutes_before_close 디폴트 10분."""
+    p = KISStrategyParams(day_trading_mode=True)
+    assert p.force_sell_window_minutes_before_close == 10
+    assert p.no_buy_window_minutes_before_close == 30
+
+
+def test_day_trading_custom_windows():
+    p = KISStrategyParams(
+        day_trading_mode=True,
+        force_sell_window_minutes_before_close=5,
+        no_buy_window_minutes_before_close=15,
+    )
+    assert p.force_sell_window_minutes_before_close == 5
+    assert p.no_buy_window_minutes_before_close == 15

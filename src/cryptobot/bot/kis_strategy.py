@@ -24,6 +24,11 @@
   - 봇은 종목별로 보유 여부에 따라 분기 (보유 중→매도판단 / 미보유→매수판단)
   - 즉 같은 틱 안에서 매도 직후 매수가 일어나지 않음 (구조적으로 보장)
   - 다음 틱 (60초 후) 부터는 정상 평가 — 별도 쿨다운 없음
+
+단타모드 (#285 day_trading_mode):
+  - 미국 정규장(NY 09:30~16:00) 끝나기 전 모든 보유 종목 청산
+  - 마감 N분 전부터 신규 매수 금지 (남은 시간으로 익절·손절 발동 어려움)
+  - 마감 N분 전 강제 시장가 매도 (다음날 갭 위험 회피)
 """
 
 from __future__ import annotations
@@ -65,6 +70,10 @@ class KISStrategyParams:
     stop_loss_pct: float = -3.0         # 손절 임계
     trailing_stop_pct: float = -2.0     # 고점 대비 트레일링 (수익 중일 때만)
     max_position_per_symbol_pct: float = 30.0  # 종목당 시드 % (분산)
+    # #285 단타모드 (Day Trading): 장 끝나기 전 강제 청산
+    day_trading_mode: bool = False
+    no_buy_window_minutes_before_close: int = 30   # 마감 N분 전부터 신규 매수 X
+    force_sell_window_minutes_before_close: int = 10  # 마감 N분 전 강제 매도
 
 
 def calc_position_size(

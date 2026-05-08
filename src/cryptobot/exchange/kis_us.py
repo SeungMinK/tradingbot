@@ -57,6 +57,7 @@ EXCHANGE_CODE = {
 # 종목별 기본 거래소 (보유 풀 기준 사전 매핑)
 # 작업 시 종목 풀이 늘어나면 별도 종목 마스터로 분리 필요
 DEFAULT_EXCHANGE_BY_TICKER = {
+    # 빅테크 + 일반 NASDAQ
     "NVDA": "NASD",
     "TSLA": "NASD",
     "AAPL": "NASD",
@@ -67,6 +68,18 @@ DEFAULT_EXCHANGE_BY_TICKER = {
     "AMD": "NASD",
     "COIN": "NASD",
     "MSTR": "NASD",
+    "ARM": "NASD",
+    "PLTR": "NASD",
+    "NFLX": "NASD",
+    "HOOD": "NASD",
+    "RIVN": "NASD",
+    "AVGO": "NASD",
+    "ASML": "NASD",
+    "SNDK": "NASD",
+    "SNXX": "NYSE",  # Tradr ETF는 NYSE Arca
+    # NYSE
+    "TSM": "NYSE",
+    # ETF
     "QQQ": "NASD",
     "SPY": "NYSE",
     "VOO": "NYSE",
