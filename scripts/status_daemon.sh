@@ -1,5 +1,5 @@
 #!/bin/bash
-# CryptoBot 백그라운드 프로세스 상태 확인.
+# TradingBot 백그라운드 프로세스 상태 확인.
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_ROOT"
@@ -13,7 +13,7 @@ RED='\033[0;31m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-echo -e "${GREEN}=== CryptoBot 프로세스 상태 ===${NC}"
+echo -e "${GREEN}=== TradingBot 프로세스 상태 ===${NC}"
 echo ""
 
 if [[ ! -d "$PIDS_DIR" ]]; then

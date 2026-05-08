@@ -55,7 +55,7 @@ class CryptoBot:
 
     def start(self) -> None:
         """봇 시작."""
-        logger.info("=== CryptoBot 시작 ===")
+        logger.info("=== TradingBot (코인 봇) 시작 ===")
         logger.info("종목: %s (%d개)", ", ".join(self._coin_mgr.active_coins), len(self._coin_mgr.active_coins))
         logger.info("활성 전략: %s", self._strategy_sel.current_strategy_name)
         logger.info("등록 전략: %s", ", ".join(self._strategy_sel.registry.list_names()))
@@ -827,7 +827,7 @@ class CryptoBot:
                     logger.info("미체결 주문 %d건 취소 (%s)", c, coin)
 
     def _shutdown(self, *args):
-        logger.info("=== CryptoBot 종료 ===")
+        logger.info("=== TradingBot (코인 봇) 종료 ===")
         self._notifier.notify_bot_status("종료됨")
         if self._scheduler.running:
             self._scheduler.shutdown(wait=False)

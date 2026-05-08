@@ -1,5 +1,5 @@
 #!/bin/bash
-# CryptoBot 백그라운드 종료.
+# TradingBot 백그라운드 종료.
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_ROOT"
@@ -16,7 +16,7 @@ if [[ ! -d "$PIDS_DIR" ]]; then
     exit 0
 fi
 
-echo -e "${GREEN}=== CryptoBot 백그라운드 종료 ===${NC}"
+echo -e "${GREEN}=== TradingBot 백그라운드 종료 ===${NC}"
 
 stopped=0
 not_running=0

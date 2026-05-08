@@ -1,13 +1,13 @@
 <p align="center">
-  <img src="docs/images/logo.png" alt="CryptoBot Logo" width="200" />
+  <img src="docs/images/logo.png" alt="TradingBot Logo" width="200" />
 </p>
 
-<h1 align="center">CryptoBot</h1>
+<h1 align="center">TradingBot</h1>
 
 <p align="center">
-  AI 기반 코인 자동매매 시스템
+  AI 기반 멀티 마켓 자동매매 시스템 (코인 + 한국주식 + 미국주식)
   <br />
-  10개 매매 전략 + Claude AI 시장분석 + 멀티코인 자동 선별
+  10개 매매 전략 + Claude AI 시장분석 + 멀티 종목 자동 선별
   <br />
   <a href="https://cryptobot-eight.vercel.app"><strong>Live Demo</strong></a> · <a href="https://api.seungmink.dev/api/docs"><strong>API Docs</strong></a>
 </p>
@@ -16,8 +16,8 @@
   <img src="https://img.shields.io/badge/python-3.11+-blue?logo=python" alt="Python" />
   <img src="https://img.shields.io/badge/React-18-61dafb?logo=react" alt="React" />
   <img src="https://img.shields.io/badge/Claude_AI-Haiku_4.5-blueviolet?logo=anthropic" alt="Claude" />
-  <img src="https://img.shields.io/badge/Exchange-Upbit-blue" alt="Upbit" />
-  <img src="https://img.shields.io/badge/tests-101_passed-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/Exchanges-Upbit_+_KIS-blue" alt="Exchanges" />
+  <img src="https://img.shields.io/badge/tests-474_passed-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
 </p>
 

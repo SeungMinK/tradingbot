@@ -17,7 +17,7 @@ export default function Layout() {
   return (
     <div className="app-layout">
       <aside className="sidebar">
-        <div className="sidebar-logo">CryptoBot</div>
+        <div className="sidebar-logo">TradingBot</div>
         <nav className="sidebar-nav">
           <NavLink to="/" end className={({ isActive }) => `sidebar-link${isActive ? " active" : ""}`}>
             대시보드

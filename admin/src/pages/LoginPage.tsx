@@ -27,7 +27,7 @@ export default function LoginPage() {
   return (
     <div className="login-container">
       <div className="login-box">
-        <h1>CryptoBot Admin</h1>
+        <h1>TradingBot Admin</h1>
         <p>관리자 계정으로 로그인하세요</p>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
