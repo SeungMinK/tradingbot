@@ -341,6 +341,19 @@ CREATE TABLE IF NOT EXISTS capital_deposits (
 );
 CREATE INDEX IF NOT EXISTS idx_capital_deposits_at ON capital_deposits(deposited_at DESC);
 
+-- #276: 시장별 자본 입출금 이력 (KIS 한국/미국 시드 동적 관리).
+-- amount_krw 양수=입금, 음수=출금. 사용자가 한투 계좌에 KRW 입금 후 시장별 분배 시 명시.
+CREATE TABLE IF NOT EXISTS market_capital_deposits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market TEXT NOT NULL,
+    amount_krw REAL NOT NULL,
+    deposited_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    source TEXT NOT NULL DEFAULT 'manual',
+    note TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_market_capital_market_at ON market_capital_deposits(market, deposited_at DESC);
+
 -- #240: 페이지 방문자 추적 (admin 우선)
 CREATE TABLE IF NOT EXISTS page_visits (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

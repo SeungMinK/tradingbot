@@ -18,8 +18,29 @@ from cryptobot.bot.config import config
 from cryptobot.data.database import Database
 
 
-def get_seed_for_market(market: str) -> float:
-    """시장별 초기 시드 (KRW)."""
+def get_seed_for_market(db: Database | None = None, market: str = "") -> float:
+    """시장별 시드 (KRW). #276: market_capital_deposits 우선, fallback은 환경변수.
+
+    Args:
+        db: 데이터베이스 (None이면 환경변수 fallback only)
+        market: 'kis_kr' / 'kis_us'
+
+    설계:
+    - market_capital_deposits 테이블에 SUM(amount_krw) 있으면 그 값 (출금 = 음수 가산)
+    - 없으면 환경변수 (KIS_KR_BUDGET_KRW / KIS_US_BUDGET_KRW) 사용 = 초기 시드
+    - DB에 한 건이라도 있으면 환경변수 무시 (사용자 명시한 값이 진실)
+    """
+    if db is not None:
+        row = db.execute(
+            "SELECT COALESCE(SUM(amount_krw), 0) AS s, COUNT(*) AS n "
+            "FROM market_capital_deposits WHERE market = ?",
+            (market,),
+        ).fetchone()
+        d = dict(row) if row else {}
+        if (d.get("n") or 0) > 0:
+            return float(d.get("s") or 0)
+
+    # Fallback: 환경변수 (초기 시드)
     if market == "kis_kr":
         return float(config.kis.kr_budget_krw)
     if market == "kis_us":
@@ -39,7 +60,7 @@ def get_available_budget(db: Database, market: str) -> float:
     Returns:
         매수 가능한 KRW 금액 (음수면 0으로 클램프).
     """
-    seed = get_seed_for_market(market)
+    seed = get_seed_for_market(db, market)
 
     # 실현 PnL (sell만)
     pnl_row = db.execute(
@@ -68,7 +89,7 @@ def get_available_budget(db: Database, market: str) -> float:
 
 def get_market_budget_status(db: Database, market: str) -> dict:
     """예산 상태 디버그/표시용."""
-    seed = get_seed_for_market(market)
+    seed = get_seed_for_market(db, market)
     pnl_row = db.execute(
         "SELECT COALESCE(SUM(profit_krw), 0) AS s FROM trades "
         "WHERE market = ? AND side = 'sell'",
