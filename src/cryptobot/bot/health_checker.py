@@ -692,6 +692,8 @@ class HealthChecker:
 
         results = {
             "bot_process": self._check_bot_liveness(),
+            "kis_kr_process": self._check_kis_bot_liveness("kis_kr"),
+            "kis_us_process": self._check_kis_bot_liveness("kis_us"),
             "api_process": self._check_api_liveness(),
             "news_process": self._check_news_liveness(),
             "db_signals": self._check_recent_signals(),
@@ -817,6 +819,50 @@ class HealthChecker:
             return {"status": "warning", "message": "최근 15분 내 snapshot 없음 — 봇 정지 의심"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
+
+    def _check_kis_bot_liveness(self, market: str) -> dict:
+        """#267: KIS 봇 (kis_kr/kis_us) 프로세스 + 거래시간 체크.
+
+        프로세스: pids/bot_kis_<market>.pid 파일이 있고 PID 살아있는지.
+        거래시간: kis_kr 09:00~15:30 KST 평일 / kis_us 22:30~05:00 KST.
+        시간 외에는 거래 안 함이 정상이라 'idle' 상태.
+        """
+        from pathlib import Path
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        suffix = market.replace("kis_", "")  # 'kr' or 'us'
+        pid_file = Path("pids") / f"bot_kis_{suffix}.pid"
+        if not pid_file.exists():
+            return {"status": "off", "message": f"미시작 (pid 파일 없음)"}
+
+        try:
+            pid = int(pid_file.read_text().strip())
+            import os
+            try:
+                os.kill(pid, 0)  # 살아있는지만 확인 (signal 0)
+                alive = True
+            except (OSError, ProcessLookupError):
+                alive = False
+        except Exception:
+            alive = False
+
+        if not alive:
+            return {"status": "warning", "message": "PID 죽음"}
+
+        # 거래시간 체크
+        kst = datetime.now(ZoneInfo("Asia/Seoul"))
+        is_weekday = kst.weekday() < 5
+        if market == "kis_kr":
+            in_hours = is_weekday and (9 * 60 <= kst.hour * 60 + kst.minute < 15 * 60 + 30)
+        else:  # kis_us
+            mins = kst.hour * 60 + kst.minute
+            in_hours = is_weekday and (mins >= 22 * 60 + 30 or mins < 5 * 60)
+
+        return {
+            "status": "ok" if in_hours else "idle",
+            "message": "거래시간 중" if in_hours else "거래시간 외 (정상)",
+        }
 
     def _check_api_liveness(self) -> dict:
         """API 서버 self-ping (localhost:8000 /api/health)."""
@@ -995,13 +1041,23 @@ class HealthChecker:
 
         # 프로세스
         lines.append("*🖥️  프로세스*")
-        # BOT
-        bot_line = f">  {emoji(bot['status'])}  BOT"
+        # BOT (코인)
+        bot_line = f">  {emoji(bot['status'])}  코인 봇 (Upbit)"
         if bot.get("last_snapshot_min_ago") is not None:
             bot_line += f"  ·  마지막 tick `{bot['last_snapshot_min_ago']:.1f}분 전`"
         if bot.get("message"):
             bot_line += f"  ·  _{bot['message']}_"
         lines.append(bot_line)
+
+        # #267: KIS 봇 (한국·미국주식)
+        kr = results.get("kis_kr_process") or {}
+        if kr.get("status") and kr["status"] != "off":
+            kr_emoji = "✅" if kr["status"] == "ok" else "💤" if kr["status"] == "idle" else "⚠️"
+            lines.append(f">  {kr_emoji}  한국주식 봇 (KIS)  ·  _{kr.get('message', '')}_")
+        us = results.get("kis_us_process") or {}
+        if us.get("status") and us["status"] != "off":
+            us_emoji = "✅" if us["status"] == "ok" else "💤" if us["status"] == "idle" else "⚠️"
+            lines.append(f">  {us_emoji}  미국주식 봇 (KIS)  ·  _{us.get('message', '')}_")
 
         # API
         api_line = f">  {emoji(api['status'])}  API"
