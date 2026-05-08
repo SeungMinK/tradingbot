@@ -341,6 +341,19 @@ CREATE TABLE IF NOT EXISTS capital_deposits (
 );
 CREATE INDEX IF NOT EXISTS idx_capital_deposits_at ON capital_deposits(deposited_at DESC);
 
+-- #240: 페이지 방문자 추적 (admin 우선)
+CREATE TABLE IF NOT EXISTS page_visits (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    visited_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    session_id TEXT,
+    ip_hash TEXT,
+    user_agent TEXT,
+    page TEXT,
+    is_unique BOOLEAN DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS idx_visits_at ON page_visits(visited_at DESC);
+CREATE INDEX IF NOT EXISTS idx_visits_session ON page_visits(session_id);
+
 -- #245: 멀티 마켓 인덱스 (시장별 조회 최적화)
 CREATE INDEX IF NOT EXISTS idx_trades_market_ts ON trades(market, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_signals_market_ts ON trade_signals(market, timestamp DESC);

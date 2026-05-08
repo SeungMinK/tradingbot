@@ -320,6 +320,54 @@ def get_public_monitoring_coins(request: Request):
     ]
 
 
+@router.post("/visit")
+def post_visit(request: Request, payload: dict | None = None):
+    """#240: 페이지 방문 기록 (privacy-aware).
+
+    프론트가 마운트 시 호출. session_id(uuid)로 같은 세션 unique 판정.
+    IP는 해시만 저장 (개인 식별 정보 X).
+    """
+    if not _check_rate_limit(request):
+        return JSONResponse(status_code=429, content={"detail": "Too many requests"})
+
+    payload = payload or {}
+    session_id = (payload.get("session_id") or "")[:64]
+    page = (payload.get("page") or "/")[:100]
+    user_agent = request.headers.get("user-agent", "")[:300]
+
+    # IP 해시 (privacy)
+    import hashlib
+    forwarded = request.headers.get("x-forwarded-for", "")
+    ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "")
+    ip_hash = hashlib.sha256(ip.encode()).hexdigest()[:32] if ip else ""
+
+    db = get_db()
+
+    # 그 날 첫 방문이면 unique. session_id 우선, 없으면 IP fallback.
+    today_unique = False
+    if session_id:
+        existing = db.execute(
+            "SELECT 1 FROM page_visits WHERE DATE(visited_at)=DATE('now') "
+            "AND session_id=? LIMIT 1", (session_id,)
+        ).fetchone()
+        today_unique = existing is None
+    elif ip_hash:
+        existing = db.execute(
+            "SELECT 1 FROM page_visits WHERE DATE(visited_at)=DATE('now') "
+            "AND ip_hash=? AND (session_id IS NULL OR session_id='') LIMIT 1",
+            (ip_hash,)
+        ).fetchone()
+        today_unique = existing is None
+
+    db.execute(
+        "INSERT INTO page_visits (session_id, ip_hash, user_agent, page, is_unique) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (session_id, ip_hash, user_agent, page, today_unique),
+    )
+    db.commit()
+    return {"ok": True}
+
+
 @router.get("/account-pnl")
 def get_public_account_pnl(request: Request):
     """#233: 계좌 누적 +/-% (KRW 금액 비공개).

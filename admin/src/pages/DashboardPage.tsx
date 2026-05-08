@@ -30,6 +30,7 @@ export default function DashboardPage() {
   const [recentNews, setRecentNews] = useState<any[]>([]);
   const [llmDecisions, setLlmDecisions] = useState<LLMDecision[]>([]);
   const [llmTab, setLlmTab] = useState(0);
+  const [visitStats, setVisitStats] = useState<any>(null);  // #240
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(() => {
@@ -43,7 +44,8 @@ export default function DashboardPage() {
       client.get("/news/stats", { params: { hours: 24 } }).then((r) => r.data).catch(() => null),
       client.get("/news?limit=6&sort=latest").then((r) => r.data?.items || r.data || []).catch(() => []),
       client.get("/llm/decisions?limit=6").then((r) => r.data).catch(() => []),
-    ]).then(([bal, pos, hist, mkt, trades, coins, nStats, news, llm]) => {
+      client.get("/visits/stats?days=30").then((r) => r.data).catch(() => null),
+    ]).then(([bal, pos, hist, mkt, trades, coins, nStats, news, llm, vs]) => {
       setBalance(bal);
       setPositions(pos as PositionsResponse | null);
       setHistory(hist as BalanceHistory[]);
@@ -53,6 +55,7 @@ export default function DashboardPage() {
       setNewsStats(nStats);
       setRecentNews(news as any[]);
       setLlmDecisions(llm as LLMDecision[]);
+      setVisitStats(vs);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
@@ -324,6 +327,24 @@ export default function DashboardPage() {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* #240: 방문자 통계 */}
+      {visitStats && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-title">방문자 통계</div>
+          <div className="kpi-grid">
+            <StatCard label="오늘 PV" value={`${visitStats.today?.pv ?? 0}`} sub={`UV ${visitStats.today?.uv ?? 0}`} />
+            <StatCard label="어제 PV" value={`${visitStats.yesterday?.pv ?? 0}`} sub={`UV ${visitStats.yesterday?.uv ?? 0}`} />
+            <StatCard label="최근 7일 PV" value={`${visitStats.last_7_days?.pv ?? 0}`} sub={`UV ${visitStats.last_7_days?.uv ?? 0}`} />
+            <StatCard label="누적 PV" value={`${visitStats.total?.pv ?? 0}`} sub={`UV ${visitStats.total?.uv ?? 0}`} />
+          </div>
+          {visitStats.daily?.length > 1 && (
+            <div style={{ marginTop: 12, fontSize: 12, color: "var(--text-muted)" }}>
+              일별: {visitStats.daily.slice(-14).map((d: any) => `${d.date.slice(5)}:${d.pv}`).join(" · ")}
+            </div>
+          )}
         </div>
       )}
     </div>
