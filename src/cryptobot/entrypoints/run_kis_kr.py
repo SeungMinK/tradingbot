@@ -190,7 +190,7 @@ class KISKoreanBot:
 
 
 def main() -> None:
-    setup_logging()
+    setup_logging("bot_kis_kr")  # #271: service 인자 필수
     KISKoreanBot().start()
 
 
