@@ -20,8 +20,10 @@
   - 시드 × max_position_per_symbol_pct (기본 30%)
   - → 3종목 분산. 한 종목 망해도 시드의 30% 한도
 
-매수 cooldown:
-  - 같은 종목 24h 내 재매수 X (체결 직후 변동 노이즈 회피)
+매도 ↔ 매수 충돌 방지:
+  - 봇은 종목별로 보유 여부에 따라 분기 (보유 중→매도판단 / 미보유→매수판단)
+  - 즉 같은 틱 안에서 매도 직후 매수가 일어나지 않음 (구조적으로 보장)
+  - 다음 틱 (60초 후) 부터는 정상 평가 — 별도 쿨다운 없음
 """
 
 from __future__ import annotations
@@ -63,7 +65,6 @@ class KISStrategyParams:
     stop_loss_pct: float = -3.0         # 손절 임계
     trailing_stop_pct: float = -2.0     # 고점 대비 트레일링 (수익 중일 때만)
     max_position_per_symbol_pct: float = 30.0  # 종목당 시드 % (분산)
-    rebuy_cooldown_hours: int = 24       # 같은 종목 재매수 금지 시간
 
 
 def calc_position_size(

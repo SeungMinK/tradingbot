@@ -78,7 +78,7 @@ def get_market_universe(_: UserResponse = Depends(get_current_user)):
                     "description": (
                         "매수: RSI≤35 AND 가격<MA20 AND 가격>MA60×0.92 AND 거래량 OK. "
                         "매도: 손절(-3%) → 트레일링(-2%) → 추세 기반 익절. "
-                        "24h 재매수 금지, 종목당 시드 30~40% 한도."
+                        "종목당 시드 30~40% 한도. 매수/매도 충돌은 분기로 차단."
                     ),
                     "take_profit_pct": kr_th.take_profit_pct,
                     "stop_loss_pct": kr_th.stop_loss_pct,
@@ -100,7 +100,7 @@ def get_market_universe(_: UserResponse = Depends(get_current_user)):
                     "description": (
                         "매수: RSI≤35 AND 가격<MA20 AND 가격>MA60×0.92 AND 거래량 OK. "
                         "매도: 손절(-3%) → 트레일링(-2%) → 추세 기반 익절. "
-                        "24h 재매수 금지, 종목당 시드 30~40% 한도."
+                        "종목당 시드 30~40% 한도. 매수/매도 충돌은 분기로 차단."
                     ),
                     "take_profit_pct": us_th.take_profit_pct,
                     "stop_loss_pct": us_th.stop_loss_pct,
