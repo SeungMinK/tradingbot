@@ -173,17 +173,27 @@ export default function TradesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.items.map((t) => (
+                  {data.items.map((t: any) => {
+                    const isKis = t.market === "kis_us" || t.market === "kis_kr";
+                    const marketIcon = t.market === "kis_us" ? "🇺🇸" : t.market === "kis_kr" ? "🇰🇷" : "🪙";
+                    const priceUnit = t.market === "kis_us" ? "$" : "₩";
+                    const priceFormatted = t.market === "kis_us"
+                      ? `$${Number(t.price).toFixed(2)}`
+                      : formatKRW(t.price);
+                    return (
                     <tr key={t.id} style={{ cursor: "pointer" }} onClick={() => setSelectedTrade(t)}>
                       <td style={{ fontSize: 12 }}>{formatDateTime(t.timestamp)}</td>
-                      <td>{t.coin}</td>
+                      <td>
+                        <span style={{ marginRight: 4, fontSize: 11 }}>{marketIcon}</span>
+                        {t.coin}
+                      </td>
                       <td>
                         <span className={`badge ${t.side === "buy" ? "badge-green" : "badge-red"}`}>
                           {t.side === "buy" ? "매수" : "매도"}
                         </span>
                       </td>
-                      <td>{formatKRW(t.price)}</td>
-                      <td>{t.amount.toFixed(8)}</td>
+                      <td>{priceFormatted}</td>
+                      <td>{isKis ? Number(t.amount).toFixed(t.amount === Math.floor(t.amount) ? 0 : 4) : t.amount.toFixed(8)}</td>
                       <td>{formatKRW(t.total_krw)}</td>
                       <td><span className="badge badge-purple">{t.strategy}</span></td>
                       <td style={{ fontSize: 12 }}>
@@ -196,7 +206,8 @@ export default function TradesPage() {
                         {t.profit_krw != null ? formatKRW(t.profit_krw) : "-"}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
