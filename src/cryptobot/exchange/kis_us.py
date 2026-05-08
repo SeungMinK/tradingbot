@@ -136,6 +136,10 @@ class KISUSExchange(Exchange):
         self._acnt_prdt_cd = account_product_code
         self._tr_ids = TR_ID_PAPER if is_paper else TR_ID_REAL
         self._is_paper = is_paper
+        # #297: OHLCV 캐시 — 일봉 RSI/MA는 일중 자주 안 바뀌니 60초 캐시
+        # rate limit (KIS 초당 5건) 회피 + dailyprice API 부하 절감
+        self._ohlcv_cache: dict[str, tuple[float, "pd.DataFrame"]] = {}
+        self._ohlcv_cache_ttl_sec = 60
 
     # ---- 메타 ----
 
@@ -218,9 +222,21 @@ class KISUSExchange(Exchange):
         interval: str = "day",
         count: int = 200,
     ) -> pd.DataFrame:
-        """OHLCV 일봉 조회 (미국 시간 기준)."""
+        """OHLCV 일봉 조회 (미국 시간 기준).
+
+        #297: 60초 캐시 — 일봉 RSI/MA 지표는 일중 미세변동만이므로 30초 폴링에
+        매번 dailyprice 호출하면 rate limit 걸림. 60초 캐시로 충분.
+        """
         if interval != "day":
             raise ValueError(f"미국주식은 day만 지원 (요청: {interval})")
+
+        # 캐시 체크 (count 무관 — 캐시는 항상 최대 행 수 유지하고 tail로 잘라줌)
+        import time as _time
+        cache_key = symbol
+        cached = self._ohlcv_cache.get(cache_key)
+        if cached and (_time.time() - cached[0]) < self._ohlcv_cache_ttl_sec:
+            df_cached = cached[1]
+            return df_cached.tail(count)
 
         excd = self._quote_exchange_code(symbol)  # 시세는 3글자
         end_date = datetime.now(NY).strftime("%Y%m%d")
@@ -262,6 +278,8 @@ class KISUSExchange(Exchange):
         df = pd.DataFrame(df_rows).sort_values("date").set_index("date")
         # KIS는 시작 날짜로부터 역순으로 응답하기도 하므로 start_date 이후만 필터
         df = df[df.index >= pd.to_datetime(start_date, format="%Y%m%d")]
+        # #297: 캐시 저장 (전체 df, count 무관)
+        self._ohlcv_cache[cache_key] = (_time.time(), df)
         return df.tail(count)
 
     # ---- 주문 ----

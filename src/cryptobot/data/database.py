@@ -369,6 +369,24 @@ CREATE TABLE IF NOT EXISTS kis_us_symbols (
 );
 CREATE INDEX IF NOT EXISTS idx_kis_us_symbols_enabled ON kis_us_symbols(enabled);
 
+-- #297-2: 매 틱 매수 판단 결과 기록 (사용자 가시성).
+-- 봇이 30초마다 평가하는 내용을 DB에 저장하면 admin에서 "왜 아직 안 샀는지" 확인 가능.
+CREATE TABLE IF NOT EXISTS kis_us_evaluations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    evaluated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ticker TEXT NOT NULL,
+    price REAL,
+    rsi REAL,
+    ma20 REAL,
+    ma60 REAL,
+    should_buy BOOLEAN NOT NULL DEFAULT 0,
+    reason TEXT,                    -- "RSI 42.0>35" 같은 미충족 사유 또는 매수 신호 사유
+    confidence REAL DEFAULT 0,
+    holds_already BOOLEAN DEFAULT 0  -- 보유 중이라 매도 평가만 한 경우
+);
+CREATE INDEX IF NOT EXISTS idx_kis_us_eval_ts ON kis_us_evaluations(evaluated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_kis_us_eval_ticker_ts ON kis_us_evaluations(ticker, evaluated_at DESC);
+
 -- #240: 페이지 방문자 추적 (admin 우선)
 CREATE TABLE IF NOT EXISTS page_visits (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
