@@ -410,6 +410,12 @@ class KISUSExchange(Exchange):
         except APIError:
             raise
         order_price = round(cur_price * 1.005, 2)  # +0.5% 슬리피지 버퍼
+        # #322: KIS는 ORD_QTY 정수 문자열 요구 ("1" OK, "1.0" 거부 → "MCA 전문바디 오류")
+        # INTEGER_ONLY_TICKERS면 정수, 아니면 소수점 4자리까지
+        if symbol in INTEGER_ONLY_TICKERS:
+            qty_str = str(int(amount))
+        else:
+            qty_str = f"{amount:g}" if amount == int(amount) else f"{amount:.4f}"
         try:
             data = self._client.post(
                 "/uapi/overseas-stock/v1/trading/order",
@@ -419,10 +425,10 @@ class KISUSExchange(Exchange):
                     "ACNT_PRDT_CD": self._acnt_prdt_cd,
                     "OVRS_EXCG_CD": excd,
                     "PDNO": symbol,
-                    "ORD_QTY": str(amount),
-                    "OVRS_ORD_UNPR": str(order_price),  # 현재가 +0.5% 지정가
+                    "ORD_QTY": qty_str,
+                    "OVRS_ORD_UNPR": str(order_price),
                     "ORD_SVR_DVSN_CD": "0",
-                    "ORD_DVSN": "00",  # 00=지정가
+                    "ORD_DVSN": "00",
                 },
             )
         except APIError:
@@ -483,6 +489,11 @@ class KISUSExchange(Exchange):
         except APIError:
             raise
         order_price = round(cur_price * 0.995, 2)  # -0.5% 슬리피지 버퍼
+        # #322: ORD_QTY 정수 문자열 (KIS body 검증 통과)
+        if symbol in INTEGER_ONLY_TICKERS:
+            qty_str = str(int(amount))
+        else:
+            qty_str = f"{amount:g}" if amount == int(amount) else f"{amount:.4f}"
         try:
             data = self._client.post(
                 "/uapi/overseas-stock/v1/trading/order",
@@ -492,8 +503,8 @@ class KISUSExchange(Exchange):
                     "ACNT_PRDT_CD": self._acnt_prdt_cd,
                     "OVRS_EXCG_CD": excd,
                     "PDNO": symbol,
-                    "ORD_QTY": str(amount),
-                    "OVRS_ORD_UNPR": str(order_price),  # 현재가 -0.5% 지정가
+                    "ORD_QTY": qty_str,
+                    "OVRS_ORD_UNPR": str(order_price),
                     "ORD_SVR_DVSN_CD": "0",
                     "ORD_DVSN": "00",
                 },
