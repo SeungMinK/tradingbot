@@ -41,11 +41,18 @@ def toggle_symbol(
     payload: dict = Body(...),
     _: UserResponse = Depends(get_current_user),
 ):
-    """종목 활성/비활성 토글. body: {ticker: str, enabled: bool}"""
+    """종목 활성/비활성 토글. body: {ticker: str, enabled: bool}.
+
+    #315: 분봉 미지원 종목은 enable=true 거부 (봇 평가 불가).
+    """
+    from cryptobot.exchange.kis_us import KIS_MINUTE_UNSUPPORTED
+
     ticker = (payload.get("ticker") or "").strip().upper()
     enabled = bool(payload.get("enabled"))
     if not ticker:
         raise HTTPException(400, "ticker required")
+    if enabled and ticker in KIS_MINUTE_UNSUPPORTED:
+        raise HTTPException(400, f"{ticker}: KIS 분봉 미지원 종목은 활성화 불가")
 
     db = get_db()
     cur = db.execute(
