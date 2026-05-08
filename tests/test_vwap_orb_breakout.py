@@ -86,18 +86,21 @@ def test_check_buy_orb_forming():
     assert "ORB 형성 중" in sig.reason
 
 
-def test_is_eod_window_at_9am():
+def test_is_eod_window_at_9am(monkeypatch):
     """KST 09:00 정각 → EOD."""
+    monkeypatch.setenv("COIN_EOD_HOUR_KST", "9")
     assert is_eod_window(datetime(2026, 5, 9, 9, 0, 0, tzinfo=KST)) is True
 
 
-def test_is_eod_window_at_904():
+def test_is_eod_window_at_904(monkeypatch):
     """KST 09:04 → EOD 윈도우 안 (5분 윈도우)."""
+    monkeypatch.setenv("COIN_EOD_HOUR_KST", "9")
     assert is_eod_window(datetime(2026, 5, 9, 9, 4, 0, tzinfo=KST)) is True
 
 
-def test_is_eod_window_outside():
+def test_is_eod_window_outside(monkeypatch):
     """KST 09:10 → 윈도우 밖."""
+    monkeypatch.setenv("COIN_EOD_HOUR_KST", "9")
     assert is_eod_window(datetime(2026, 5, 9, 9, 10, 0, tzinfo=KST)) is False
     assert is_eod_window(datetime(2026, 5, 9, 8, 0, 0, tzinfo=KST)) is False
     assert is_eod_window(datetime(2026, 5, 9, 12, 0, 0, tzinfo=KST)) is False
@@ -127,5 +130,5 @@ def test_strategy_info():
 
 
 def test_eod_hour_constant():
-    """EOD 시간 상수 = KST 09:00."""
-    assert EOD_HOUR_KST == 9
+    """EOD 시간 디폴트 상수 = KST 09:00 (env 미설정 시)."""
+    assert EOD_HOUR_KST == 9  # 모듈 디폴트 — env로 오버라이드 가능

@@ -538,7 +538,7 @@ class KISUSBot:
             order_uuid=result.order_uuid,
         )
         if self._notifier.is_configured:
-            self._notifier.notify_trade(
+            self._notifier.notify_trade_message(
                 f"[KIS_US][매수] {symbol} {result.amount:.4f}주 @ ${result.price:.2f} — {reason}"
             )
 
@@ -566,7 +566,7 @@ class KISUSBot:
             order_uuid=result.order_uuid,
         )
         if self._notifier.is_configured:
-            self._notifier.notify_trade(
+            self._notifier.notify_trade_message(
                 f"[KIS_US][매도] {symbol} {result.amount:.4f}주 @ ${result.price:.2f} ({pnl_pct:+.2f}%) — {reason}"
             )
         self._last_buy_price.pop(symbol, None)
