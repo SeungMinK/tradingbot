@@ -32,6 +32,7 @@ export default function DashboardPage() {
   const [llmTab, setLlmTab] = useState(0);
   const [visitStats, setVisitStats] = useState<any>(null);  // #240
   const [marketStats, setMarketStats] = useState<any>(null);  // #254 6단계
+  const [marketCapital, setMarketCapital] = useState<any>(null);  // #277
   const [loading, setLoading] = useState(true);
 
   const fetchAll = useCallback(() => {
@@ -47,7 +48,8 @@ export default function DashboardPage() {
       client.get("/llm/decisions?limit=6").then((r) => r.data).catch(() => []),
       client.get("/visits/stats?days=30").then((r) => r.data).catch(() => null),
       client.get("/market-stats").then((r) => r.data).catch(() => null),
-    ]).then(([bal, pos, hist, mkt, trades, coins, nStats, news, llm, vs, ms]) => {
+      client.get("/market-capital/status").then((r) => r.data).catch(() => null),
+    ]).then(([bal, pos, hist, mkt, trades, coins, nStats, news, llm, vs, ms, mc]) => {
       setBalance(bal);
       setPositions(pos as PositionsResponse | null);
       setHistory(hist as BalanceHistory[]);
@@ -59,6 +61,7 @@ export default function DashboardPage() {
       setLlmDecisions(llm as LLMDecision[]);
       setVisitStats(vs);
       setMarketStats(ms);
+      setMarketCapital(mc);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
@@ -329,6 +332,82 @@ export default function DashboardPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* #277: KIS 시장별 시드/자본 */}
+      {marketCapital?.markets?.length > 0 && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="card-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>KIS 시장별 자본</span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={async () => {
+                const a = prompt("입금 금액 (KRW). 50:50 자동 분배.");
+                if (!a) return;
+                const note = prompt("메모 (선택)") || "";
+                await client.post("/market-capital/deposit", { amount: Number(a), split: true, note });
+                fetchAll();
+              }} style={{ padding: "6px 12px", fontSize: 12, borderRadius: 6, border: "1px solid var(--border)", cursor: "pointer", background: "#fff" }}>
+                💰 입금 (50:50)
+              </button>
+              <button onClick={async () => {
+                const from = prompt("이동 출처 (kis_kr | kis_us)");
+                if (!from) return;
+                const to = prompt("이동 대상 (kis_kr | kis_us)");
+                if (!to) return;
+                const a = prompt("금액 (KRW)");
+                if (!a) return;
+                const note = prompt("메모 (선택)") || "";
+                await client.post("/market-capital/transfer", { from_market: from, to_market: to, amount: Number(a), note });
+                fetchAll();
+              }} style={{ padding: "6px 12px", fontSize: 12, borderRadius: 6, border: "1px solid var(--border)", cursor: "pointer", background: "#fff" }}>
+                ↔️ 이동
+              </button>
+              <button onClick={async () => {
+                const market = prompt("출금 시장 (kis_kr | kis_us)");
+                if (!market) return;
+                const a = prompt("금액 (KRW)");
+                if (!a) return;
+                const note = prompt("메모 (선택)") || "";
+                await client.post("/market-capital/withdraw", { market, amount: Number(a), note });
+                fetchAll();
+              }} style={{ padding: "6px 12px", fontSize: 12, borderRadius: 6, border: "1px solid var(--border)", cursor: "pointer", background: "#fff" }}>
+                💸 출금
+              </button>
+            </div>
+          </div>
+          <table style={{ width: "100%", fontSize: 13 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: 6 }}>시장</th>
+                <th style={{ textAlign: "right", padding: 6 }}>시드</th>
+                <th style={{ textAlign: "right", padding: 6 }}>실현 PnL</th>
+                <th style={{ textAlign: "right", padding: 6 }}>보유 원가</th>
+                <th style={{ textAlign: "right", padding: 6 }}>가용 예산</th>
+                <th style={{ textAlign: "right", padding: 6 }}>자체 자본</th>
+              </tr>
+            </thead>
+            <tbody>
+              {marketCapital.markets.map((m: any) => (
+                <tr key={m.market}>
+                  <td style={{ padding: 6, fontWeight: 600 }}>
+                    {m.market === "kis_kr" ? "🇰🇷 한국주식" : "🇺🇸 미국주식"}
+                  </td>
+                  <td style={{ textAlign: "right", padding: 6 }}>{Number(m.seed).toLocaleString()}원</td>
+                  <td style={{ textAlign: "right", padding: 6 }} className={m.realized_pnl >= 0 ? "positive" : "negative"}>
+                    {m.realized_pnl >= 0 ? "+" : ""}{Number(m.realized_pnl).toLocaleString()}원
+                  </td>
+                  <td style={{ textAlign: "right", padding: 6 }}>{Number(m.held_cost).toLocaleString()}원</td>
+                  <td style={{ textAlign: "right", padding: 6, fontWeight: 600 }}>{Number(m.available).toLocaleString()}원</td>
+                  <td style={{ textAlign: "right", padding: 6, fontWeight: 600 }}>{Number(m.current_capital).toLocaleString()}원</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
+            💡 입금 50:50 분배: 한투 계좌에 N원 입금 → 한국/미국에 N/2씩 자동 등록.
+            이동: 시장 간 자본 재배치 (수익/손실 보정).
           </div>
         </div>
       )}
