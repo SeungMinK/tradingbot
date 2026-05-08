@@ -1266,6 +1266,32 @@ class Database:
                 )
                 logger.info("long_term_swing 전략 추가 (#226, 기본 비활성)")
 
+            # #321: vwap_orb_breakout 전략 추가 (Zarattini 코인 단타)
+            vob = conn.execute("SELECT 1 FROM strategies WHERE name = 'vwap_orb_breakout'").fetchone()
+            if vob is None:
+                conn.execute(
+                    """INSERT INTO strategies (
+                        name, display_name, description, category, market_states,
+                        timeframe, difficulty, default_params_json, is_active, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        "vwap_orb_breakout",
+                        "VWAP+ORB 단타 (Zarattini)",
+                        "Zarattini 2023 논문 기반. KST 자정 후 1시간 ORB → 돌파 + VWAP + 거래량 spike. KST 09:00 EOD.",
+                        "breakout",
+                        "bullish,sideways",
+                        "15m",
+                        "medium",
+                        (
+                            '{"orb_minutes": 60, "volume_spike_multiplier": 1.5,'
+                            ' "bar_minutes": 15}'
+                        ),
+                        False,  # 기본 비활성 (사용자가 admin에서 활성화)
+                        "inactive",
+                    ),
+                )
+                logger.info("vwap_orb_breakout 전략 추가 (#321, 기본 비활성)")
+
             # 봇 설정 기본값 삽입
             row = conn.execute("SELECT COUNT(*) FROM bot_config").fetchone()
             if row[0] == 0:

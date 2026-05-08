@@ -16,6 +16,7 @@ from cryptobot.strategies.registry import StrategyRegistry
 from cryptobot.strategies.rsi_mean_reversion import RSIMeanReversion
 from cryptobot.strategies.supertrend import Supertrend
 from cryptobot.strategies.volatility_breakout import VolatilityBreakout
+from cryptobot.strategies.vwap_orb_breakout import VwapOrbBreakout
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ STRATEGY_CLASSES: dict[str, type[BaseStrategy]] = {
     "breakout_momentum": BreakoutMomentum,
     "bb_rsi_combined": BBRSICombined,
     "long_term_swing": LongTermSwing,  # #226
+    "vwap_orb_breakout": VwapOrbBreakout,  # #321 Zarattini ORB (코인 단타)
 }
 
 
