@@ -65,11 +65,28 @@ class RiskManager:
 
     매매 전에 check_*() 메서드로 리스크를 점검한다.
     NestJS의 Guard처럼, 조건 미충족 시 매매를 차단한다.
+
+    #254: market 인자로 시장별(upbit/kis_kr/kis_us) 임계 자동 적용 가능.
+      - upbit: 익절 3%, 손절 -2.5%, 수수료 가드 0.2%
+      - kis_kr: 익절 4%, 손절 -3%, 수수료 가드 0.4% (거래세 0.18%)
+      - kis_us: 익절 5%, 손절 -3%, 수수료 가드 0.5% (환전 스프레드)
     """
 
-    def __init__(self, db: Database, limits: RiskLimits | None = None) -> None:
+    def __init__(
+        self,
+        db: Database,
+        limits: RiskLimits | None = None,
+        market: str = "upbit",
+    ) -> None:
         self._db = db
+        self.market = market
         self.limits = limits or RiskLimits()
+        # 시장별 임계 lookup. profit_threshold 모듈 활용 (#250).
+        try:
+            from cryptobot.bot.profit_threshold import get_thresholds
+            self.market_thresholds = get_thresholds(market)
+        except Exception:
+            self.market_thresholds = None  # 미지원 시장이어도 RiskManager 동작 유지
 
     def check_can_buy(self, coin: str, buy_amount_krw: float, current_balance_krw: float) -> tuple[bool, str]:
         """매수 가능 여부 점검.
