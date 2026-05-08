@@ -40,13 +40,21 @@ def get_market_universe(_: UserResponse = Depends(get_current_user)):
             "params_json": d.get("default_params_json"),
         }
 
-    # KIS 한국 종목 풀 (코드에 하드코딩됨 — 추후 DB로 옮길 수 있음)
+    # KIS 풀 — 미국 봇은 env 오버라이드 반영 (#285)
     from cryptobot.entrypoints.run_kis_kr import DEFAULT_KOSPI_UNIVERSE
-    from cryptobot.entrypoints.run_kis_us import DEFAULT_US_UNIVERSE
+    from cryptobot.entrypoints.run_kis_us import _build_params, _parse_universe
     from cryptobot.bot.profit_threshold import get_thresholds
 
+    us_universe = _parse_universe()  # env KIS_US_UNIVERSE 반영
+    us_params = _build_params(len(us_universe))
     kr_th = get_thresholds("kis_kr")
-    us_th = get_thresholds("kis_us")
+
+    # DB 거래 토글 상태
+    def _flag(key: str) -> bool:
+        r = db.execute("SELECT value FROM bot_config WHERE key = ?", (key,)).fetchone()
+        return str(dict(r)["value"]).lower() == "true" if r else True
+    kr_trading = _flag("kis_kr_trading_enabled")
+    us_trading = _flag("kis_us_trading_enabled")
 
     return {
         "markets": [
@@ -68,6 +76,7 @@ def get_market_universe(_: UserResponse = Depends(get_current_user)):
                 "display_name": "🇰🇷 한국주식 (KIS)",
                 "symbols": list(DEFAULT_KOSPI_UNIVERSE),
                 "symbol_count": len(DEFAULT_KOSPI_UNIVERSE),
+                "trading_enabled": kr_trading,
                 "strategy": {
                     "name": "kis_conservative",
                     "display_name": "KIS 보수적 전략 (#279)",
@@ -76,9 +85,9 @@ def get_market_universe(_: UserResponse = Depends(get_current_user)):
                 "rules": {
                     "type": "kis_conservative",
                     "description": (
+                        f"{'✅ 거래 ON' if kr_trading else '⏸️ 거래 OFF (DB 토글)'}. "
                         "매수: RSI≤35 AND 가격<MA20 AND 가격>MA60×0.92 AND 거래량 OK. "
-                        "매도: 손절(-3%) → 트레일링(-2%) → 추세 기반 익절. "
-                        "종목당 시드 30~40% 한도. 매수/매도 충돌은 분기로 차단."
+                        "매도: 손절(-3%) → 트레일링(-2%) → 추세 기반 익절."
                     ),
                     "take_profit_pct": kr_th.take_profit_pct,
                     "stop_loss_pct": kr_th.stop_loss_pct,
@@ -88,23 +97,30 @@ def get_market_universe(_: UserResponse = Depends(get_current_user)):
             {
                 "market": "kis_us",
                 "display_name": "🇺🇸 미국주식 (KIS)",
-                "symbols": list(DEFAULT_US_UNIVERSE),
-                "symbol_count": len(DEFAULT_US_UNIVERSE),
+                "symbols": us_universe,
+                "symbol_count": len(us_universe),
+                "trading_enabled": us_trading,
                 "strategy": {
                     "name": "kis_conservative",
-                    "display_name": "KIS 보수적 전략 (#279)",
+                    "display_name": (
+                        f"KIS {'단타(데일리)' if us_params.day_trading_mode else '스윙'} 전략"
+                    ),
                     "params_json": None,
                 },
                 "rules": {
                     "type": "kis_conservative",
                     "description": (
-                        "매수: RSI≤35 AND 가격<MA20 AND 가격>MA60×0.92 AND 거래량 OK. "
-                        "매도: 손절(-3%) → 트레일링(-2%) → 추세 기반 익절. "
-                        "종목당 시드 30~40% 한도. 매수/매도 충돌은 분기로 차단."
+                        f"{'✅ 거래 ON' if us_trading else '⏸️ 거래 OFF (DB 토글)'} | "
+                        f"{'단타(마감 강제청산)' if us_params.day_trading_mode else '스윙'} | "
+                        f"매수: RSI≤{us_params.rsi_oversold:.0f} AND 가격<MA20 AND MA60×0.92 위 | "
+                        f"종목당 한도 {us_params.max_position_per_symbol_pct:.1f}% (= 100/N)"
                     ),
-                    "take_profit_pct": us_th.take_profit_pct,
-                    "stop_loss_pct": us_th.stop_loss_pct,
-                    "fee_guard_pct": us_th.fee_guard_pct,
+                    "take_profit_pct": us_params.take_profit_pct,
+                    "stop_loss_pct": us_params.stop_loss_pct,
+                    "trailing_stop_pct": us_params.trailing_stop_pct,
+                    "day_trading_mode": us_params.day_trading_mode,
+                    "no_buy_window_min": us_params.no_buy_window_minutes_before_close,
+                    "force_sell_window_min": us_params.force_sell_window_minutes_before_close,
                 },
             },
         ]
