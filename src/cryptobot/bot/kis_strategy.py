@@ -44,6 +44,8 @@ class KISBuySignal:
     should_buy: bool
     reason: str
     confidence: float = 0.0  # 0~1
+    # #305 Zarattini ORB 모드: 매수 시 OR_low를 손절 가격으로 전달
+    stop_loss_price: float | None = None
 
 
 @dataclass
@@ -245,8 +247,10 @@ def evaluate_buy_breakout(
     return KISBuySignal(
         True,
         f"ORB↑ ${or_high:.2f}→${current_price:.2f} (+{breakout_strength*100:.2f}%) | "
-        f"VWAP ${vwap:.2f} (+{vwap_strength*100:.2f}%) | 거래량 {spike_ratio:.1f}x",
+        f"VWAP ${vwap:.2f} (+{vwap_strength*100:.2f}%) | 거래량 {spike_ratio:.1f}x | "
+        f"손절 OR_low ${or_low:.2f}",
         confidence=max(conf, 0.3),
+        stop_loss_price=or_low,  # #305 Zarattini 논문: OR 반대편이 손절선
     )
 
 
@@ -304,14 +308,28 @@ def evaluate_sell(
     buy_price: float,
     highest_since_buy: float | None,
     params: KISStrategyParams = KISStrategyParams(),
+    stop_loss_price: float | None = None,
 ) -> KISSellSignal:
-    """매도 판단. highest_since_buy 는 외부에서 추적 (트레일링용)."""
+    """매도 판단. highest_since_buy는 외부에서 추적 (트레일링용).
+
+    Args:
+        stop_loss_price: #305 Zarattini ORB 모드 — 절대 가격 손절선 (OR_low).
+            None이면 stop_loss_pct(%) 사용. 값 있으면 우선.
+    """
     if buy_price <= 0:
         return KISSellSignal(False, "매수가 미상")
 
     pnl_pct = (current_price - buy_price) / buy_price * 100
 
-    # 1. 손절 — 무조건
+    # 1-A. ORB 손절 (Zarattini 논문 모드) — 절대 가격
+    if stop_loss_price is not None and stop_loss_price > 0 and current_price <= stop_loss_price:
+        return KISSellSignal(
+            True,
+            f"손절 OR_low ${stop_loss_price:.2f} 도달 (현재 ${current_price:.2f}, {pnl_pct:.2f}%)",
+            is_profit_taking=False,
+        )
+
+    # 1-B. 절대% 손절 (기존)
     if pnl_pct <= params.stop_loss_pct:
         return KISSellSignal(True, f"손절 {pnl_pct:.2f}%", is_profit_taking=False)
 
