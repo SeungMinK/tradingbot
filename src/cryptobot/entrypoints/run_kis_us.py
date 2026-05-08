@@ -44,9 +44,12 @@ DEFAULT_US_UNIVERSE = [
     "MSTR",
 ]
 
-# 매매 임계 (#250: 환전 + 수수료 흡수 위해 5%+ 익절)
-TAKE_PROFIT_PCT = 5.0
-STOP_LOSS_PCT = -3.0
+# #254 2단계: profit_threshold 모듈 lookup (단일 진실의 원천)
+from cryptobot.bot.profit_threshold import get_thresholds as _get_thresholds  # noqa: E402
+
+_US_THRESHOLDS = _get_thresholds("kis_us")
+TAKE_PROFIT_PCT = _US_THRESHOLDS.take_profit_pct  # 5.0
+STOP_LOSS_PCT = _US_THRESHOLDS.stop_loss_pct  # -3.0
 TICK_INTERVAL_SEC = 60
 
 
