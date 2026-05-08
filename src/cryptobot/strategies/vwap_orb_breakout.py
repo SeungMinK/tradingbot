@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, time as dtime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -33,8 +34,9 @@ from cryptobot.strategies.base import BaseStrategy, Signal, StrategyInfo
 logger = logging.getLogger(__name__)
 KST = ZoneInfo("Asia/Seoul")
 
-# EOD = 매일 KST 09:00 (사용자 정의 — 미국주식 정규장 마감 직후 ≈ KST 06:00 + 3시간 버퍼)
-EOD_HOUR_KST = 9
+# EOD = 매일 KST 09시 (사용자 정의 가능, env COIN_EOD_HOUR_KST)
+# 추천: 자정 ORB와 가까운 23시 (사이클 23시간 활용) 또는 09시 (사용자 일어남 직후 결과 확인)
+EOD_HOUR_KST = int(os.getenv("COIN_EOD_HOUR_KST", "9"))
 
 
 class VwapOrbBreakout(BaseStrategy):
