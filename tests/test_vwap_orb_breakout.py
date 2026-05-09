@@ -130,5 +130,5 @@ def test_strategy_info():
 
 
 def test_eod_hour_constant():
-    """EOD 시간 디폴트 상수 = KST 09:00 (env 미설정 시)."""
-    assert EOD_HOUR_KST == 9  # 모듈 디폴트 — env로 오버라이드 가능
+    """EOD 시간 디폴트 상수 = KST 06:00 (#358 dead-time 기준, env로 오버라이드)."""
+    assert EOD_HOUR_KST == 6

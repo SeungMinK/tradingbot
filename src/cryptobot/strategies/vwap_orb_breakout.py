@@ -5,7 +5,7 @@
 - TQQQ/SOXL 등 3X 레버리지 ETF 권고 → 변동성 큰 코인 적용 가설
 
 코인 적용 시 차이 (vs 미국주식):
-- 24/7 시장 → "EOD" 개념 = KST 09:00 (매일 아침 청산)
+- 24/7 시장 → "EOD" 개념 = KST 06:00 (#358: 거래량 저점/dead time 기준)
 - ORB 형성: KST 00:00~01:00 (자정 후 1시간) — 5분봉 12개
 - 봉 단위: 15분봉 (5분은 코인 노이즈 큼)
 - 거래량 spike: 1.5x (코인은 변동성 커서 살짝 완화)
@@ -35,8 +35,9 @@ logger = logging.getLogger(__name__)
 KST = ZoneInfo("Asia/Seoul")
 
 # EOD = 매일 KST N시 (사용자 정의 가능, env COIN_EOD_HOUR_KST)
-# 추천: 0시(자정, 사이클 24h) / 23시 / 9시. 호출 시점 평가 (env 변경 후 봇 재시작만 하면 반영).
-EOD_HOUR_KST = 9  # 디폴트 (테스트용 상수)
+# 디폴트 6시: 시간대별 거래량 분석상 KST 04~06시가 글로벌 dead time(0.41~0.51x)
+# 으로 consolidation 시점 — slippage 적고 추세 시작점에서 끊기지 않음. (#358)
+EOD_HOUR_KST = 6  # 디폴트 (테스트용 상수)
 
 
 def _eod_hour() -> int:
@@ -45,7 +46,7 @@ def _eod_hour() -> int:
 
 
 class VwapOrbBreakout(BaseStrategy):
-    """VWAP + ORB + 거래량 spike 단타 (코인용, KST 자정 ORB + 09:00 EOD)."""
+    """VWAP + ORB + 거래량 spike 단타 (코인용, KST 자정 ORB + 06:00 EOD)."""
 
     def __init__(self, params=None) -> None:
         super().__init__(params)
@@ -60,7 +61,7 @@ class VwapOrbBreakout(BaseStrategy):
             description=(
                 "Zarattini 2023 논문 기반 단타 전략. "
                 "KST 자정 후 1시간 ORB 형성 → 돌파 + VWAP 강세 + 거래량 spike 시 매수. "
-                "KST 09:00 EOD 청산. 변동성 큰 종목에 효과적."
+                "KST 06:00 EOD 청산. 변동성 큰 종목에 효과적."
             ),
             market_states=["bullish", "sideways"],
             timeframe="15m",
@@ -141,9 +142,9 @@ class VwapOrbBreakout(BaseStrategy):
 
 
 def is_eod_window(now: datetime | None = None, window_minutes: int = 5) -> bool:
-    """KST 09:00~09:05 사이면 True (EOD 청산 윈도우).
+    """EOD 시점 ±window_minutes 사이면 True (강제 청산 윈도우).
 
-    매일 아침 9시 정각 ± 5분에 보유 코인 강제 매도.
+    EOD 시각은 _eod_hour() (env COIN_EOD_HOUR_KST 또는 디폴트 KST 06:00).
     """
     if now is None:
         now = datetime.now(KST)
