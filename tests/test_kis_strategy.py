@@ -800,3 +800,32 @@ def test_zarattini_3x_atr_evaluate_sell_atr_stop_fires():
     )
     assert sig.should_sell is True
     assert sig.is_profit_taking is False
+
+
+def test_calc_atr_excludes_partial_today():
+    """ATR이 오늘 (incomplete) 일봉 포함 시 정확도 영향 — 호출자가 필터해야 함.
+
+    이 테스트는 calc_atr이 마지막 봉을 그대로 사용한다는 *현재 동작*을 명시.
+    호출자(run_kis_us._evaluate_buy_only)에서 오늘을 제외하고 전달해야 함.
+    """
+    from cryptobot.bot.kis_strategy import calc_atr
+
+    # 정상 14일: TR=2 → ATR=2
+    closes = [30.0] * 16
+    highs = [c + 1.0 for c in closes]
+    lows = [c - 1.0 for c in closes]
+    df_full = _daily_df(highs, lows, closes)
+    atr_full = calc_atr(df_full, period=14)
+
+    # 마지막 봉만 inflate (오늘 incomplete 시뮬, high-low=0.1만)
+    highs_partial = highs[:-1] + [closes[-1] + 0.05]
+    lows_partial = lows[:-1] + [closes[-1] - 0.05]
+    df_partial = _daily_df(highs_partial, lows_partial, closes)
+    atr_partial = calc_atr(df_partial, period=14)
+
+    # 오늘 봉의 작은 range가 ATR을 떨어뜨림
+    assert atr_partial < atr_full
+    # 호출자는 df.iloc[:-1]로 오늘을 제외해서 정확한 ATR 얻음
+    atr_excluded = calc_atr(df_partial.iloc[:-1], period=14)
+    # 14일 완성 데이터로 계산 → ATR=2.0
+    assert abs(atr_excluded - 2.0) < 0.1
