@@ -656,3 +656,147 @@ def test_calc_position_size_risk_based_zero_risk():
         fractional=False,
     )
     assert qty == 0.0
+
+
+# ===================================================================
+# #364 Pure Zarattini 3X 변형 (ATR 손절, No TP) 테스트
+# ===================================================================
+
+
+def _daily_df(highs: list[float], lows: list[float], closes: list[float]) -> pd.DataFrame:
+    """일봉 더미 — ATR 계산용."""
+    return pd.DataFrame({
+        "open": closes,  # open=close 단순화
+        "high": highs,
+        "low": lows,
+        "close": closes,
+        "volume": [1_000_000] * len(closes),
+    })
+
+
+def test_calc_atr_basic():
+    """ATR(14) 계산 기본."""
+    from cryptobot.bot.kis_strategy import calc_atr
+
+    # 16봉, 매일 high-low = 2 (간단 케이스)
+    closes = [30.0] * 16
+    highs = [c + 1.0 for c in closes]
+    lows = [c - 1.0 for c in closes]
+    df = _daily_df(highs, lows, closes)
+    atr = calc_atr(df, period=14)
+    # TR = high - low = 2 (모든 봉) → ATR = 2
+    assert atr is not None
+    assert abs(atr - 2.0) < 0.01
+
+
+def test_calc_atr_insufficient_data():
+    """일봉 14+1 미만이면 None."""
+    from cryptobot.bot.kis_strategy import calc_atr
+
+    df = _daily_df([31, 32], [29, 30], [30, 31])
+    assert calc_atr(df, period=14) is None
+
+
+def test_zarattini_3x_atr_bullish_signal():
+    """첫 5분봉 양봉 + ATR 가용 → ATR 손절 시그널 (No TP)."""
+    from cryptobot.bot.kis_strategy import KISStrategyParams, evaluate_zarattini_3x_atr
+
+    df_5m = _bar1_df(30.0, 30.5, 29.95, 30.3)  # 양봉 1%
+    closes = [30.0] * 16
+    highs = [c + 1.0 for c in closes]
+    lows = [c - 1.0 for c in closes]
+    df_d = _daily_df(highs, lows, closes)  # ATR ≈ 2.0
+
+    params = KISStrategyParams(atr_stop_pct=5.0, atr_period=14)
+    sig = evaluate_zarattini_3x_atr(df_5m, df_d, params=params)
+    assert sig.should_buy is True
+    # stop = 30.3 - 0.05 × 2.0 = 30.3 - 0.1 = 30.2
+    assert abs(sig.stop_loss_price - 30.2) < 0.01
+    # 3X 변형은 TP 없음
+    assert sig.take_profit_price is None
+    # risk_per_share = 0.1
+    assert abs(sig.risk_per_share - 0.1) < 0.01
+    assert "3X-ATR" in sig.reason
+    assert "TP 없음" in sig.reason
+
+
+def test_zarattini_3x_atr_doji_skip():
+    """도지 → 매매 X."""
+    from cryptobot.bot.kis_strategy import evaluate_zarattini_3x_atr
+
+    df_5m = _bar1_df(30.0, 30.5, 29.5, 30.001)  # 도지
+    df_d = _daily_df([31] * 16, [29] * 16, [30] * 16)
+    sig = evaluate_zarattini_3x_atr(df_5m, df_d)
+    assert sig.should_buy is False
+    assert "도지" in sig.reason
+
+
+def test_zarattini_3x_atr_bearish_skip():
+    """음봉 → 인버스 ETF 별도 평가."""
+    from cryptobot.bot.kis_strategy import evaluate_zarattini_3x_atr
+
+    df_5m = _bar1_df(30.0, 30.05, 29.5, 29.7)  # 음봉
+    df_d = _daily_df([31] * 16, [29] * 16, [30] * 16)
+    sig = evaluate_zarattini_3x_atr(df_5m, df_d)
+    assert sig.should_buy is False
+    assert "음봉" in sig.reason
+
+
+def test_zarattini_3x_atr_no_daily_data():
+    """일봉 부족 시 ATR 계산 불가 → 매수 X."""
+    from cryptobot.bot.kis_strategy import evaluate_zarattini_3x_atr
+
+    df_5m = _bar1_df(30.0, 30.5, 29.95, 30.3)  # 양봉
+    df_d = _daily_df([31, 32], [29, 30], [30, 31])  # 2봉만
+    sig = evaluate_zarattini_3x_atr(df_5m, df_d)
+    assert sig.should_buy is False
+    assert "ATR" in sig.reason
+
+
+def test_zarattini_3x_atr_pct_configurable():
+    """atr_stop_pct env로 변경 가능."""
+    from cryptobot.bot.kis_strategy import KISStrategyParams, evaluate_zarattini_3x_atr
+
+    df_5m = _bar1_df(30.0, 30.5, 29.95, 30.3)
+    closes = [30.0] * 16
+    df_d = _daily_df([c + 1.0 for c in closes], [c - 1.0 for c in closes], closes)  # ATR=2
+
+    # 5% 디폴트 → stop_distance = 0.1
+    p = KISStrategyParams(atr_stop_pct=5.0, atr_period=14)
+    sig = evaluate_zarattini_3x_atr(df_5m, df_d, params=p)
+    assert abs(sig.risk_per_share - 0.1) < 0.01
+
+    # 10% → stop_distance = 0.2
+    p2 = KISStrategyParams(atr_stop_pct=10.0, atr_period=14)
+    sig2 = evaluate_zarattini_3x_atr(df_5m, df_d, params=p2)
+    assert abs(sig2.risk_per_share - 0.2) < 0.01
+
+
+def test_zarattini_3x_atr_evaluate_sell_no_tp_holds_up():
+    """3X 변형 매도 룰: TP 없음 + take_profit_pct=999 → 가격 올라가도 매도 X (EOD가 처리)."""
+    from cryptobot.bot.kis_strategy import KISStrategyParams, evaluate_sell
+
+    # zarattini_3x_atr 모드 디폴트: take_profit_pct=999, trailing=-99
+    p = KISStrategyParams(take_profit_pct=999.0, trailing_stop_pct=-99.0)
+    sig = evaluate_sell(
+        df=None, current_price=36.0, buy_price=30.0,
+        highest_since_buy=36.0,
+        params=p,
+        stop_loss_price=29.9,
+        take_profit_price=None,
+    )
+    assert sig.should_sell is False
+
+
+def test_zarattini_3x_atr_evaluate_sell_atr_stop_fires():
+    """3X 변형 매도 룰: ATR 손절가 도달 시 매도."""
+    from cryptobot.bot.kis_strategy import evaluate_sell
+
+    sig = evaluate_sell(
+        df=None, current_price=29.9, buy_price=30.3,
+        highest_since_buy=30.5,
+        stop_loss_price=29.9,  # ATR 기반 손절가
+        take_profit_price=None,
+    )
+    assert sig.should_sell is True
+    assert sig.is_profit_taking is False

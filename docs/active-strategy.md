@@ -119,7 +119,9 @@ KIS US 봇은 **별도 sell 경로**(`src/cryptobot/bot/kis_strategy.py:evaluate
 
 ## 현재 활성 전략
 
-**`zarattini_bar1`** — Pure Zarattini Bar-1 directional (#364, 2026-05-09)
+**`zarattini_3x_atr`** — Pure Zarattini 3X 변형 (논문 TQQQ 변형, #364, 2026-05-09)
+
+> 백테스트(논문): TQQQ 2016~2023 **+9,350% / 연환산 알파 93%** (3X 레버리지 최적화)
 
 ### 핵심 파라미터
 
@@ -129,12 +131,19 @@ KIS US 봇은 **별도 sell 경로**(`src/cryptobot/bot/kis_strategy.py:evaluate
 | 봉 | 5분봉 | `KIS_US_OHLCV_INTERVAL` |
 | OR 형성 | 첫 5분봉 (NY 09:30~09:35) | — |
 | 진입 룰 | 첫 봉 양봉 → 종목 매수 / 음봉/도지 → skip | — |
-| 도지 임계 | 0.05% (몸통 비율) | `KISStrategyParams.doji_threshold_pct` |
-| 손절 | 첫 봉 low (절대가) | — |
-| **익절** | **10R = entry + 10×(entry−stop)** | `KISStrategyParams.r_multiple_target` |
+| 도지 임계 | 0.05% (몸통 비율) | `KIS_US_DOJI_THRESHOLD_PCT` |
+| **손절** | **0.05 × ATR(14d)** (절대가, 14일 변동성에 적응) | `KIS_US_ATR_STOP_PCT`, `KIS_US_ATR_PERIOD` |
+| **익절** | **없음 — EOD까지 hold** (큰 추세 끝까지 잡음) | — |
 | EOD | NY 15:50 (마감 10분 전) | `KIS_US_FORCE_SELL_BEFORE_CLOSE_MIN` |
-| 사이징 | 1% 리스크/거래 | `KISStrategyParams.risk_pct_per_trade` |
+| 사이징 | 1% 리스크/거래 | `KIS_US_RISK_PCT` |
 | 페어 mutex | SOXL ↔ SOXS 동시 보유 X | `ZARATTINI_PAIRS` 상수 |
+
+### 왜 3X 변형이 baseline(bar1+10R TP)보다 좋은가 (논문 근거)
+
+- 3X ETF는 일일 변동성이 큼 → bar1 low 손절은 좁아 가짜 stop-out 빈발
+- 0.05 × ATR(14) 손절 = 14일 변동성에 적응 (여전히 tight하지만 noise 흡수)
+- No TP = 큰 모멘텀 날 EOD까지 hold (10R 제한 X)
+- 결과: TQQQ 베이스라인(+1,484%) → 3X 최적화(+9,350%) 6배 개선
 
 ### 핵심 로직 (논문 그대로)
 
@@ -158,8 +167,17 @@ NY 09:35 ─── 둘째 봉 시작 = 진입 평가 시점
 
 | 날짜 | PR | 변경 | 사유 |
 |---|---|---|---|
-| 2026-05-09 | #364 | Pure Zarattini Bar-1 채택 (SOXL/SOXS 페어) | 기존 ORB+VWAP+거래량 spike 혼합은 시그널 거의 안 발생, 논문 정신 회복 |
+| 2026-05-09 | #364 (3X-ATR) | **Pure Zarattini 3X 변형 채택** (ATR 손절, No TP) | 논문 TQQQ 변형 +9,350% 알파 |
+| 2026-05-09 | #364 (baseline) | Pure Zarattini Bar-1 baseline 추가 (10R TP) | 논문 baseline (+1,484%), 3X-ATR 도입 전 단계 |
 | 2026-05-08 | #305 | Zarattini ORB 모드 추가 (SOXL only) | 논문 80% 충실 — 진입 트리거 + 양방향 갭 |
+
+### 운영 모드 전환 (env)
+
+| 모드 | env | 백테스트 (논문) |
+|---|---|---|
+| **3X 최적 (현재)** | `KIS_US_STRATEGY=zarattini_3x_atr` | **+9,350% / α 93%** |
+| Baseline | `KIS_US_STRATEGY=zarattini_bar1` | +1,484% / α 50% |
+| 기존 혼합 | `KIS_US_STRATEGY=breakout` | (벤치마크) |
 
 ### 데이터 출처
 

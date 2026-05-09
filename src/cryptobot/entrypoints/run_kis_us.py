@@ -53,6 +53,7 @@ from cryptobot.bot.kis_strategy import (
     evaluate_buy,
     evaluate_buy_breakout,
     evaluate_sell,
+    evaluate_zarattini_3x_atr,
     evaluate_zarattini_bar1,
 )
 from cryptobot.data.database import Database
@@ -140,12 +141,19 @@ def _build_params(universe_size: int) -> KISStrategyParams:
     is_day_trading = os.getenv("KIS_US_DAY_TRADING", "false").lower() == "true"
     strategy = os.getenv("KIS_US_STRATEGY", "breakout" if is_day_trading else "mean_reversion").strip().lower()
 
-    if is_day_trading and strategy == "zarattini_bar1":
-        # #364 Pure Zarattini Bar-1 — 첫 5분봉 양봉만 진입, 10R TP, OR_low SL
-        default_tp = "999"     # 절대가 take_profit_price가 우선
+    if is_day_trading and strategy == "zarattini_3x_atr":
+        # #364 Pure Zarattini 3X 변형 — TQQQ 변형 +9,350% / 93% 알파
+        # 진입: bar1 양봉, 손절: 0.05 × ATR(14), TP: 없음, EOD까지 hold
+        default_tp = "999"     # TP 없음 (절대가 None으로 처리)
         default_sl = "-4"      # 폴백 (stop_loss_price가 우선)
-        default_tr = "-99"     # 트레일링 끔 (논문엔 트레일링 없음)
-        default_orb = "5"      # 첫 5분봉
+        default_tr = "-99"     # 트레일링 끔
+        default_orb = "5"
+    elif is_day_trading and strategy == "zarattini_bar1":
+        # #364 Pure Zarattini Bar-1 baseline — 10R TP, bar1 low SL
+        default_tp = "999"
+        default_sl = "-4"
+        default_tr = "-99"
+        default_orb = "5"
     elif is_day_trading and strategy == "breakout":
         # 기존 ORB+VWAP+거래량 spike 혼합 모드
         default_tp = "999"
@@ -174,6 +182,12 @@ def _build_params(universe_size: int) -> KISStrategyParams:
         force_sell_window_minutes_before_close=int(os.getenv("KIS_US_FORCE_SELL_BEFORE_CLOSE_MIN", "10")),
         orb_minutes=int(os.getenv("KIS_US_ORB_MINUTES", default_orb)),
         volume_spike_multiplier=float(os.getenv("KIS_US_VOLUME_SPIKE", "2.0")),
+        # #364 Pure Zarattini 파라미터
+        doji_threshold_pct=float(os.getenv("KIS_US_DOJI_THRESHOLD_PCT", "0.05")),
+        risk_pct_per_trade=float(os.getenv("KIS_US_RISK_PCT", "1.0")),
+        r_multiple_target=float(os.getenv("KIS_US_R_MULTIPLE", "10.0")),
+        atr_stop_pct=float(os.getenv("KIS_US_ATR_STOP_PCT", "5.0")),
+        atr_period=int(os.getenv("KIS_US_ATR_PERIOD", "14")),
     )
 
 
@@ -484,8 +498,19 @@ class KISUSBot:
         ny_today = datetime.now(NY).date()
         df_today = df[df.index.date == ny_today] if hasattr(df.index, "date") else df
 
-        if self._strategy == "zarattini_bar1":
-            # #364 Pure Zarattini — 첫 5분봉 방향성만 본다
+        if self._strategy == "zarattini_3x_atr":
+            # #364 Pure Zarattini 3X 변형 — bar1 양봉 + ATR(14d) 손절 + No TP
+            try:
+                df_daily = self._exchange.get_ohlcv(symbol, interval="day", count=20)
+            except APIError as e:
+                logger.warning("%s 일봉 조회 실패 — ATR 계산 불가: %s", symbol, e)
+                return None
+            signal_ = evaluate_zarattini_3x_atr(df_today, df_daily, params=self._params)
+            sl_price = signal_.stop_loss_price
+            tp_price = None  # 3X 변형: TP 없음
+            rps = signal_.risk_per_share
+        elif self._strategy == "zarattini_bar1":
+            # #364 Pure Zarattini baseline — bar1 stop + 10R TP
             signal_ = evaluate_zarattini_bar1(df_today, params=self._params)
             sl_price = signal_.stop_loss_price
             tp_price = signal_.take_profit_price
