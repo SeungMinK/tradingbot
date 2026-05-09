@@ -6,6 +6,7 @@ import Pagination from "../components/Pagination";
 import { formatKRW, formatDateTime, formatNumber } from "../utils/format";
 import { getParamDesc } from "../utils/paramDescriptions";
 import { getIndicatorDesc, getMarketStateKR, MARKET_STATE_KR } from "../utils/indicatorDescriptions";
+import { cn } from "@/lib/utils";
 
 // 기본 뷰는 "매매만" (hold 제외). HOLD는 조건 미충족 기록이라 confidence=0이 정상이라
 // 대시보드에 섞이면 buy/sell 신호가 묻히고 "신뢰도가 다 0%"처럼 보여 오해를 유발함.
@@ -83,21 +84,18 @@ export default function SignalsPage() {
         <p>매매 판단 이력 — 실시간 자동 갱신 (30초)</p>
       </div>
 
-      {/* Stats */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
+      {/* Stats (#351 Tailwind) */}
+      <div className="flex gap-1 mb-3">
         {STAT_PERIODS.map((p) => (
           <button
             key={p.hours}
             onClick={() => setStatPeriod(p.hours)}
-            style={{
-              padding: "4px 10px",
-              fontSize: 12,
-              borderRadius: 6,
-              border: "none",
-              cursor: "pointer",
-              background: statPeriod === p.hours ? "#4a9eff" : "#2a2d3e",
-              color: statPeriod === p.hours ? "#fff" : "#8b8fa3",
-            }}
+            className={cn(
+              "px-2.5 py-1 text-xs rounded-md border-none cursor-pointer transition-colors",
+              statPeriod === p.hours
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:bg-accent"
+            )}
           >
             {p.label}
           </button>
@@ -125,42 +123,39 @@ export default function SignalsPage() {
         </div>
       )}
 
-      {/* Filter */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      {/* Filter (#351 Tailwind) */}
+      <div className="card mb-4">
+        <div className="flex justify-between items-center flex-wrap gap-2">
+          <div className="flex gap-1.5 flex-wrap">
             {SIGNAL_FILTERS.map((f) => (
               <button
                 key={f.value}
                 onClick={() => { setFilter(f.value); setPage(1); }}
-                style={{
-                  padding: "6px 14px",
-                  borderRadius: 6,
-                  border: "none",
-                  cursor: "pointer",
-                  fontSize: 13,
-                  background: filter === f.value ? "#4a9eff" : "#2a2d3e",
-                  color: filter === f.value ? "#fff" : "#8b8fa3",
-                }}
+                className={cn(
+                  "px-3.5 py-1.5 rounded-md border-none cursor-pointer text-sm transition-colors",
+                  filter === f.value
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:bg-accent"
+                )}
               >
                 {f.label}
               </button>
             ))}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div className="flex items-center gap-3">
             <label
-              style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)", cursor: "pointer" }}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer"
               title="HOLD 신호는 조건 미충족 기록이라 confidence=0이 정상. 끄면 포함됨."
             >
               <input
                 type="checkbox"
                 checked={excludeZeroConfidence}
                 onChange={(e) => { setExcludeZeroConfidence(e.target.checked); setPage(1); }}
-                style={{ cursor: "pointer" }}
+                className="cursor-pointer"
               />
               신뢰도 0% 제외
             </label>
-            <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            <div className="text-xs text-muted-foreground">
               총 {formatNumber(total)}건
             </div>
           </div>
