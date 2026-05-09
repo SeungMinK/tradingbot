@@ -158,8 +158,8 @@ export default function DashboardPage() {
               totalDeposits={totalDeposits}
               positionCount={pos.length}
             />
-            {/* 기존 KPI 그리드 — 매수/평가 정보 */}
-            <div className="kpi-grid mt-4">
+            {/* #367: 매수/평가/현금만 (총 보유 자산은 PnLHero와 중복이라 제거) */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
               <StatCard
                 label="매수 금액"
                 value={formatKRW(totalCost)}
@@ -168,18 +168,19 @@ export default function DashboardPage() {
               <StatCard
                 label="평가 금액"
                 value={formatKRW(totalValue)}
-                valueClass={totalValue > totalCost ? "positive" : totalValue < totalCost ? "negative" : ""}
-                sub={totalCost > 0 ? `${formatPercent((totalValue - totalCost) / totalCost * 100)} 수익률` : "포지션 없음"}
+                valueClass={totalCost > 0 && totalValue > 0 ? (totalValue > totalCost ? "positive" : "negative") : ""}
+                sub={
+                  totalCost > 0 && totalValue === 0
+                    ? "⚠️ 현재가 조회 실패"
+                    : totalCost > 0
+                      ? `${formatPercent((totalValue - totalCost) / totalCost * 100)} 수익률`
+                      : "포지션 없음"
+                }
               />
               <StatCard
                 label="현금 (KRW)"
                 value={formatKRW(balance?.krw_balance || 0)}
                 sub="다음 매수 가용"
-              />
-              <StatCard
-                label="총 보유 자산"
-                value={balance ? formatKRW(totalAsset) : "-"}
-                sub="KRW + 코인 평가"
               />
             </div>
           </>
