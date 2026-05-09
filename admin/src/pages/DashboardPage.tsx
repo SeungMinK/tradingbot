@@ -12,6 +12,7 @@ import BotStatusBanner from "../components/BotStatusBanner";
 import PnLHero from "../components/PnLHero";
 import TradeRow from "../components/TradeRow";
 import { formatKRW, formatPercent, formatDateTime } from "../utils/format";
+import { cn } from "@/lib/utils";
 import { getMarketStateKR } from "../utils/indicatorDescriptions";
 
 interface LLMDecision {
@@ -188,36 +189,47 @@ export default function DashboardPage() {
 
       {/* 시장 현황 (넓게) + 최근 매매 */}
       <div className="grid-2">
-        {/* 시장 현황 — 넓게 */}
+        {/* 시장 현황 — Tailwind 마이그레이션 (#339) */}
         <div className="card" style={{ gridColumn: market && !recentTrades.length ? "1 / -1" : undefined }}>
           <div className="card-title">시장 현황</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div className="grid grid-cols-3 gap-3 mb-4">
             <div>
-              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>BTC</div>
-              <div style={{ fontSize: 18, fontWeight: 600 }}>{market ? formatKRW(market.price) : "-"}</div>
+              <div className="text-xs text-muted-foreground">BTC</div>
+              <div className="text-lg font-semibold">{market ? formatKRW(market.price) : "-"}</div>
               {market && (
-                <div className={market.change_pct_24h >= 0 ? "positive" : "negative"} style={{ fontSize: 12 }}>
+                <div className={cn(
+                  "text-xs font-medium",
+                  market.change_pct_24h >= 0 ? "text-success" : "text-destructive"
+                )}>
                   {formatPercent(market.change_pct_24h)} (24h)
                 </div>
               )}
             </div>
             <div>
-              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>공포/탐욕</div>
-              <div style={{ fontSize: 18, fontWeight: 600, color: fg && fg.value <= 25 ? "#ef4444" : fg && fg.value >= 75 ? "#22c55e" : "var(--text-primary)" }}>
+              <div className="text-xs text-muted-foreground">공포/탐욕</div>
+              <div className={cn(
+                "text-lg font-semibold",
+                fg && fg.value <= 25 && "text-destructive",
+                fg && fg.value >= 75 && "text-success",
+              )}>
                 {fg ? fg.value : "-"}
               </div>
-              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              <div className="text-xs text-muted-foreground">
                 {fg ? (fg.classification === "Extreme Fear" ? "극도 공포" : fg.classification === "Fear" ? "공포" : fg.classification === "Neutral" ? "중립" : fg.classification === "Greed" ? "탐욕" : "극도 탐욕") : ""}
               </div>
             </div>
             <div>
-              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>시장 심리</div>
+              <div className="text-xs text-muted-foreground">시장 심리</div>
               {newsStats && (
                 <>
-                  <div style={{ fontSize: 14, fontWeight: 600 }} className={newsStats.negative > newsStats.positive ? "negative" : newsStats.positive > newsStats.negative ? "positive" : ""}>
+                  <div className={cn(
+                    "text-sm font-semibold",
+                    newsStats.negative > newsStats.positive && "text-destructive",
+                    newsStats.positive > newsStats.negative && "text-success",
+                  )}>
                     {newsStats.negative > newsStats.positive ? "부정적" : newsStats.positive > newsStats.negative ? "긍정적" : "중립"}
                   </div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  <div className="text-xs text-muted-foreground">
                     긍정 {newsStats.positive} / 부정 {newsStats.negative}
                   </div>
                 </>
