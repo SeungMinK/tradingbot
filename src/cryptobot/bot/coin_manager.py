@@ -129,11 +129,16 @@ class CoinManager:
             logger.error("코인 목록 갱신 실패: %s", e)
 
     def _get_held_coins(self) -> list[str]:
-        """현재 보유 중인 코인 목록."""
+        """현재 보유 중인 코인 목록 (upbit market만).
+
+        market 필터 없으면 KIS US 보유 종목(예: SOXL)이 코인봇 active_coins로
+        잘못 흘러들어가서 pyupbit.get_ohlcv가 실패함.
+        """
         rows = self._db.execute(
             """
             SELECT DISTINCT t.coin FROM trades t
             WHERE t.side = 'buy'
+            AND t.market = 'upbit'
             AND NOT EXISTS (SELECT 1 FROM trades s WHERE s.buy_trade_id = t.id AND s.side = 'sell')
             """
         ).fetchall()
