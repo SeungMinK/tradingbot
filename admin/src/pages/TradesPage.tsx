@@ -10,7 +10,7 @@ function TradeDetailModal({ trade, onClose }: { trade: Trade; onClose: () => voi
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h2>매매 상세 #{trade.id}</h2>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div className="grid grid-cols-2 gap-3">
           {[
             ["시간", formatDateTime(trade.timestamp)],
             ["종목", trade.coin],
@@ -32,8 +32,8 @@ function TradeDetailModal({ trade, onClose }: { trade: Trade; onClose: () => voi
             ["트리거", trade.trigger_reason],
           ].map(([label, value]) => (
             <div key={label}>
-              <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{label}</div>
-              <div style={{ fontSize: 14 }}>{value}</div>
+              <div className="text-xs text-muted-foreground">{label}</div>
+              <div className="text-sm">{value}</div>
             </div>
           ))}
         </div>
@@ -142,11 +142,11 @@ export default function TradesPage() {
         </div>
         <div className="filter-group">
           <label>종목</label>
-          <input type="text" placeholder="KRW-BTC" value={filters.coin} onChange={(e) => handleFilterChange("coin", e.target.value)} style={{ width: 120 }} />
+          <input type="text" placeholder="KRW-BTC" value={filters.coin} onChange={(e) => handleFilterChange("coin", e.target.value)} className="w-[120px]" />
         </div>
         <div className="filter-group">
           <label>전략</label>
-          <input type="text" placeholder="전략명" value={filters.strategy} onChange={(e) => handleFilterChange("strategy", e.target.value)} style={{ width: 140 }} />
+          <input type="text" placeholder="전략명" value={filters.strategy} onChange={(e) => handleFilterChange("strategy", e.target.value)} className="w-[140px]" />
         </div>
       </div>
 
