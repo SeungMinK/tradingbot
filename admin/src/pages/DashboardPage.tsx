@@ -681,34 +681,42 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* #254 6단계: 시장별 PnL */}
+      {/* #344 시장별 PnL — Tailwind */}
       {marketStats?.markets?.length > 0 && (
-        <div className="card" style={{ marginTop: 16 }}>
+        <div className="card mt-4">
           <div className="card-title">시장별 PnL</div>
-          <table style={{ width: "100%", fontSize: 13 }}>
+          <table className="w-full text-sm">
             <thead>
               <tr>
-                <th style={{ textAlign: "left", padding: 6 }}>시장</th>
-                <th style={{ textAlign: "right", padding: 6 }}>매수</th>
-                <th style={{ textAlign: "right", padding: 6 }}>매도</th>
-                <th style={{ textAlign: "right", padding: 6 }}>승률</th>
-                <th style={{ textAlign: "right", padding: 6 }}>평균 수익</th>
-                <th style={{ textAlign: "right", padding: 6 }}>실현 PnL</th>
+                <th className="text-left p-1.5">시장</th>
+                <th className="text-right p-1.5">매수</th>
+                <th className="text-right p-1.5">매도</th>
+                <th className="text-right p-1.5">승률</th>
+                <th className="text-right p-1.5">평균 수익</th>
+                <th className="text-right p-1.5">실현 PnL</th>
               </tr>
             </thead>
             <tbody>
               {marketStats.markets.map((m: any) => (
                 <tr key={m.market}>
-                  <td style={{ padding: 6, fontWeight: 600 }}>
+                  <td className="p-1.5 font-semibold">
                     {m.market === "upbit" ? "🪙 코인" : m.market === "kis_kr" ? "🇰🇷 한국주식" : m.market === "kis_us" ? "🇺🇸 미국주식" : m.market}
                   </td>
-                  <td style={{ textAlign: "right", padding: 6 }}>{m.buys}</td>
-                  <td style={{ textAlign: "right", padding: 6 }}>{m.sells}</td>
-                  <td style={{ textAlign: "right", padding: 6 }}>{m.win_rate}%</td>
-                  <td style={{ textAlign: "right", padding: 6 }} className={m.avg_profit_pct >= 0 ? "positive" : "negative"}>
+                  <td className="text-right p-1.5">{m.buys}</td>
+                  <td className="text-right p-1.5">{m.sells}</td>
+                  <td className="text-right p-1.5">{m.win_rate}%</td>
+                  <td className={cn(
+                    "text-right p-1.5",
+                    m.avg_profit_pct > 0 && "text-success",
+                    m.avg_profit_pct < 0 && "text-destructive",
+                  )}>
                     {m.avg_profit_pct >= 0 ? "+" : ""}{m.avg_profit_pct}%
                   </td>
-                  <td style={{ textAlign: "right", padding: 6, fontWeight: 600 }} className={m.total_pnl_krw >= 0 ? "positive" : "negative"}>
+                  <td className={cn(
+                    "text-right p-1.5 font-semibold",
+                    m.total_pnl_krw > 0 && "text-success",
+                    m.total_pnl_krw < 0 && "text-destructive",
+                  )}>
                     {m.total_pnl_krw >= 0 ? "+" : ""}{Number(m.total_pnl_krw).toLocaleString()}원
                   </td>
                 </tr>
