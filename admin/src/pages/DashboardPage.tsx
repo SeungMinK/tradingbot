@@ -112,8 +112,8 @@ export default function DashboardPage() {
         recentTrades={recentTrades}
       />
 
-      {/* #287 탭: 전체 / 코인 / KIS */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: "1px solid var(--border)" }}>
+      {/* #287/#345 탭 */}
+      <div className="flex gap-1 mb-4 border-b border-border">
         {([
           { id: "all", label: "전체" },
           { id: "coin", label: "🪙 코인 (Upbit)" },
@@ -122,13 +122,12 @@ export default function DashboardPage() {
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            style={{
-              padding: "8px 16px", border: "none", cursor: "pointer", fontSize: 13,
-              fontWeight: tab === t.id ? 700 : 400,
-              borderBottom: tab === t.id ? "2px solid #4a9eff" : "2px solid transparent",
-              background: "transparent",
-              color: tab === t.id ? "#4a9eff" : "var(--text-secondary)",
-            }}
+            className={cn(
+              "px-4 py-2 text-sm cursor-pointer bg-transparent border-none -mb-px",
+              tab === t.id
+                ? "font-bold border-b-2 border-primary text-primary"
+                : "font-normal border-b-2 border-transparent text-muted-foreground hover:text-foreground"
+            )}
           >
             {t.label}
           </button>
@@ -300,25 +299,28 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* 현재 포지션 */}
-      <div className="card" style={{ marginBottom: 24 }}>
+      {/* 현재 포지션 (#345 Tailwind) */}
+      <div className="card mb-6">
         <div className="card-title">현재 포지션</div>
         {positions?.has_position && positions.positions?.length > 0 ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 12 }}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {positions.positions.map((p) => (
-              <div key={p.id} style={{ padding: 12, borderRadius: 8, background: "var(--bg-secondary)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ fontWeight: 600, fontSize: 15 }}>{p.coin?.replace("KRW-", "")}</span>
-                    {p.strategy && <span className="badge badge-purple" style={{ fontSize: 9 }}>{p.strategy}</span>}
+              <div key={p.id} className="p-3 rounded-lg bg-muted">
+                <div className="flex justify-between items-center mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-base">{p.coin?.replace("KRW-", "")}</span>
+                    {p.strategy && <span className="badge badge-purple text-[9px]">{p.strategy}</span>}
                   </div>
-                  <span className={p.unrealized_pnl_pct >= 0 ? "positive" : "negative"} style={{ fontWeight: 600 }}>
+                  <span className={cn(
+                    "font-semibold",
+                    p.unrealized_pnl_pct >= 0 ? "text-success" : "text-destructive"
+                  )}>
                     {formatPercent(p.unrealized_pnl_pct)}
                   </span>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, fontSize: 12 }}>
-                  <div><span style={{ color: "var(--text-muted)" }}>투자 </span>{formatKRW(p.total_krw)}</div>
-                  <div><span style={{ color: "var(--text-muted)" }}>현재 </span>{formatKRW(p.amount * p.current_price)}</div>
+                <div className="grid grid-cols-2 gap-1 text-xs">
+                  <div><span className="text-muted-foreground">투자 </span>{formatKRW(p.total_krw)}</div>
+                  <div><span className="text-muted-foreground">현재 </span>{formatKRW(p.amount * p.current_price)}</div>
                 </div>
               </div>
             ))}
@@ -328,28 +330,44 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* 최근 뉴스 */}
+      {/* 최근 뉴스 (#345 Tailwind) */}
       {recentNews.length > 0 && (
-        <div className="card" style={{ marginBottom: 24 }}>
-          <div className="card-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div className="card mb-6">
+          <div className="card-title flex justify-between items-center">
             <span>최근 뉴스</span>
-            <Link to="/news" style={{ fontSize: 12 }}>전체 보기</Link>
+            <Link to="/news" className="text-xs text-primary hover:underline">전체 보기</Link>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="flex flex-col gap-2">
             {recentNews.map((n: any, i: number) => (
-              <div key={n.id || i} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "8px 0", borderBottom: i < recentNews.length - 1 ? "1px solid var(--border)" : "none" }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-                    <span className={`badge ${n.sentiment === "positive" ? "badge-green" : n.sentiment === "negative" ? "badge-red" : "badge-yellow"}`} style={{ fontSize: 9 }}>
+              <div
+                key={n.id || i}
+                className={cn(
+                  "flex justify-between items-start py-2",
+                  i < recentNews.length - 1 && "border-b border-border"
+                )}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className={cn(
+                      "badge text-[9px]",
+                      n.sentiment === "positive" && "badge-green",
+                      n.sentiment === "negative" && "badge-red",
+                      n.sentiment !== "positive" && n.sentiment !== "negative" && "badge-yellow",
+                    )}>
                       {n.sentiment === "positive" ? "긍정" : n.sentiment === "negative" ? "부정" : "중립"}
                     </span>
-                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{n.source}</span>
+                    <span className="text-xs text-muted-foreground">{n.source}</span>
                   </div>
-                  <a href={n.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13, color: "var(--text-primary)", textDecoration: "none", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <a
+                    href={n.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-foreground no-underline block truncate hover:text-primary"
+                  >
                     {n.title}
                   </a>
                 </div>
-                <span style={{ fontSize: 10, color: "var(--text-muted)", whiteSpace: "nowrap", marginLeft: 12 }}>
+                <span className="text-[10px] text-muted-foreground whitespace-nowrap ml-3">
                   {formatDateTime(n.published_at || n.collected_at).replace(/\d{4}\. /, "")}
                 </span>
               </div>
@@ -377,9 +395,9 @@ export default function DashboardPage() {
               <tbody>
                 {monitoredCoins.map((c: any) => (
                   <tr key={c.coin}>
-                    <td style={{ fontWeight: 600 }}>{c.coin?.replace("KRW-", "")}</td>
+                    <td className="font-semibold">{c.coin?.replace("KRW-", "")}</td>
                     <td>{formatKRW(c.current_price || 0)}</td>
-                    <td><span className="badge badge-purple" style={{ fontSize: 10 }}>{c.strategy}</span></td>
+                    <td><span className="badge badge-purple text-[10px]">{c.strategy}</span></td>
                     <td>
                       <span className={`badge ${c.signal_type === "buy" ? "badge-green" : c.signal_type === "sell" ? "badge-red" : "badge-yellow"}`}>
                         {c.signal_type === "buy" ? "매수" : c.signal_type === "sell" ? "매도" : "HOLD"}
@@ -726,9 +744,9 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* #240: 방문자 통계 */}
+      {/* #240/#345 방문자 통계 */}
       {visitStats && (
-        <div className="card" style={{ marginTop: 16 }}>
+        <div className="card mt-4">
           <div className="card-title">방문자 통계</div>
           <div className="kpi-grid">
             <StatCard label="오늘 PV" value={`${visitStats.today?.pv ?? 0}`} sub={`UV ${visitStats.today?.uv ?? 0}`} />
@@ -737,7 +755,7 @@ export default function DashboardPage() {
             <StatCard label="누적 PV" value={`${visitStats.total?.pv ?? 0}`} sub={`UV ${visitStats.total?.uv ?? 0}`} />
           </div>
           {visitStats.daily?.length > 1 && (
-            <div style={{ marginTop: 12, fontSize: 12, color: "var(--text-muted)" }}>
+            <div className="mt-3 text-xs text-muted-foreground">
               일별: {visitStats.daily.slice(-14).map((d: any) => `${d.date.slice(5)}:${d.pv}`).join(" · ")}
             </div>
           )}
