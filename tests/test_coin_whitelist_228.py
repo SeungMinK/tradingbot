@@ -57,6 +57,24 @@ def test_core_coins_includes_sol():
     assert "KRW-SOL" in CoinManager.CORE_COINS
 
 
+def test_held_coins_filters_by_market(db):
+    """KIS US 보유 종목(SOXL 등)이 코인봇 active_coins에 흘러들어가면 안됨."""
+    # 코인봇 보유 1건 + KIS US 보유 1건
+    db.execute(
+        "INSERT INTO trades (market, coin, side, price, amount, total_krw, fee_krw, strategy) "
+        "VALUES ('upbit', 'KRW-BTC', 'buy', 100000000, 0.001, 100000, 50, 'test')"
+    )
+    db.execute(
+        "INSERT INTO trades (market, coin, side, price, amount, total_krw, fee_krw, strategy) "
+        "VALUES ('kis_us', 'SOXL', 'buy', 30, 1, 40000, 20, 'test')"
+    )
+    db.commit()
+    mgr = _make_mgr(db)
+    held = mgr._get_held_coins()
+    assert "KRW-BTC" in held
+    assert "SOXL" not in held, "KIS US 종목이 코인봇 보유 목록에 포함되면 안됨"
+
+
 def test_whitelist_seeded_in_db(db):
     """initialize 시 coin_whitelist_enabled / coin_whitelist 시드."""
     enabled = db.execute("SELECT value FROM bot_config WHERE key='coin_whitelist_enabled'").fetchone()
