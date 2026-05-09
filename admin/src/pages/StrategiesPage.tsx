@@ -74,7 +74,7 @@ export default function StrategiesPage() {
 
       {/* 코인별 전략 현황 */}
       {coinStrategies.length > 0 && (
-        <div className="card" style={{ marginBottom: 24 }}>
+        <div className="card mb-6">
           <div className="card-title">코인별 적용 전략 (시장 상태 기반 자동 선택)</div>
           <div className="table-container">
             <table>
@@ -89,8 +89,8 @@ export default function StrategiesPage() {
               </thead>
               <tbody>
                 {coinStrategies.map((cs: any) => (
-                  <tr key={cs.coin} style={{ background: cs.holding ? "rgba(34, 197, 94, 0.05)" : "transparent" }}>
-                    <td style={{ fontWeight: 600 }}>{cs.coin?.replace("KRW-", "")}</td>
+                  <tr key={cs.coin} className={cs.holding ? "bg-success/5" : ""}>
+                    <td className="font-semibold">{cs.coin?.replace("KRW-", "")}</td>
                     <td>
                       <span className={`badge ${cs.market_state === "bullish" ? "badge-green" : cs.market_state === "bearish" ? "badge-red" : "badge-yellow"}`}>
                         {getMarketStateKR(cs.market_state || "")}
@@ -119,11 +119,11 @@ export default function StrategiesPage() {
         if (sectionStrategies.length === 0) return null;
 
         return (
-          <div key={section.state} style={{ marginBottom: 28 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-              <span style={{ fontSize: 20 }}>{section.emoji}</span>
-              <h2 style={{ margin: 0, fontSize: 18 }}>{section.label}</h2>
-              <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{section.desc}</span>
+          <div key={section.state} className="mb-7">
+            <div className="flex items-center gap-2.5 mb-3.5">
+              <span className="text-xl">{section.emoji}</span>
+              <h2 className="m-0 text-lg">{section.label}</h2>
+              <span className="text-sm text-muted-foreground">{section.desc}</span>
             </div>
             <div className="strategy-grid">
               {sectionStrategies.map((s) => (

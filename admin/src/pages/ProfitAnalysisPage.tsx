@@ -100,11 +100,11 @@ export default function ProfitAnalysisPage() {
       )}
 
       {/* 승/패 비율 — 전체 + 오늘 나란히 */}
-      <div className="grid-2" style={{ marginBottom: 24 }}>
+      <div className="grid-2 mb-6">
         <div className="card">
           <div className="card-title">전체 승/패</div>
           {winLossData.length > 0 && (stats?.wins ?? 0) + (stats?.losses ?? 0) > 0 ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+            <div className="flex items-center gap-6">
               <ResponsiveContainer width="50%" height={160}>
                 <PieChart>
                   <Pie data={winLossData} cx="50%" cy="50%" innerRadius={40} outerRadius={65} dataKey="value" label={({ name, value }) => `${name} ${value}`}>
@@ -129,7 +129,7 @@ export default function ProfitAnalysisPage() {
         <div className="card">
           <div className="card-title">오늘 승/패</div>
           {today && today.total_trades > 0 ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+            <div className="flex items-center gap-6">
               <ResponsiveContainer width="50%" height={160}>
                 <PieChart>
                   <Pie
@@ -166,7 +166,7 @@ export default function ProfitAnalysisPage() {
       </div>
 
       {/* 일별 손익 */}
-      <div className="card" style={{ marginBottom: 24 }}>
+      <div className="card mb-6">
         <div className="card-title">일별 손익</div>
         {daily.length > 0 ? (
           <>
