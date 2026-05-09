@@ -176,7 +176,6 @@ export default function TradesPage() {
                   {data.items.map((t: any) => {
                     const isKis = t.market === "kis_us" || t.market === "kis_kr";
                     const marketIcon = t.market === "kis_us" ? "🇺🇸" : t.market === "kis_kr" ? "🇰🇷" : "🪙";
-                    const priceUnit = t.market === "kis_us" ? "$" : "₩";
                     const priceFormatted = t.market === "kis_us"
                       ? `$${Number(t.price).toFixed(2)}`
                       : formatKRW(t.price);
