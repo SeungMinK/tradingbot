@@ -89,7 +89,10 @@ class KISStrategyParams:
     # #364 Pure Zarattini Bar-1 모드 파라미터
     doji_threshold_pct: float = 0.05     # bar1 |close-open|/open < N% 이면 도지로 판정 (skip)
     risk_pct_per_trade: float = 1.0      # 계좌 대비 % 리스크/거래 (포지션 사이징)
-    r_multiple_target: float = 10.0      # 익절 = entry + R×(entry−stop)
+    r_multiple_target: float = 10.0      # baseline 모드 익절 = entry + R×(entry−stop)
+    # #364 3X 최적 변형 파라미터 (논문 TQQQ 변형: +9,350% / 93% 알파)
+    atr_stop_pct: float = 5.0            # stop_distance = (atr_stop_pct / 100) × ATR(period)
+    atr_period: int = 14                 # ATR 계산 일수 (논문: 14일)
 
 
 def calc_position_size(
@@ -150,6 +153,35 @@ def _calc_ma(prices: pd.Series, period: int) -> float | None:
     if len(prices) < period:
         return None
     return float(prices.iloc[-period:].mean())
+
+
+def calc_atr(df: pd.DataFrame, period: int = 14) -> float | None:
+    """#364 14일 ATR (Average True Range) 계산.
+
+    True Range = max(high - low, |high - prev_close|, |low - prev_close|).
+    ATR = TR의 period일 단순 이동 평균.
+
+    Args:
+        df: 일봉 OHLCV (high, low, close 컬럼). period+1봉 이상 필요.
+        period: 평균 일수 (논문: 14)
+
+    Returns:
+        ATR 값 ($/주). 데이터 부족 시 None.
+    """
+    if df is None or len(df) < period + 1:
+        return None
+    high = df["high"].astype(float)
+    low = df["low"].astype(float)
+    prev_close = df["close"].astype(float).shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+    atr = tr.rolling(period).mean().iloc[-1]
+    if pd.isna(atr) or atr <= 0:
+        return None
+    return float(atr)
 
 
 def calc_vwap(df: pd.DataFrame) -> float | None:
@@ -336,6 +368,93 @@ def evaluate_zarattini_bar1(
         stop_loss_price=stop,
         take_profit_price=target,
         risk_per_share=risk_per_share,
+    )
+
+
+def evaluate_zarattini_3x_atr(
+    df_today_5m: pd.DataFrame,
+    df_daily: pd.DataFrame,
+    params: KISStrategyParams = KISStrategyParams(),
+) -> KISBuySignal:
+    """#364 Pure Zarattini 3X 변형 — TQQQ 변형 +9,350% / 93% 알파.
+
+    논문 사양 (3X 레버리지 ETF 최적화):
+    - 진입: bar1 양봉 (도지/음봉은 같은 종목 매수 X)
+    - 손절: 0.05 × ATR(14일) (절대 가격) — bar1 low보다 정밀
+    - 익절: 없음 — EOD까지 hold (큰 모멘텀 끝까지 가져감)
+    - 사이징: 1% 리스크 (calc_position_size_risk_based)
+
+    왜 baseline 변형과 다른가:
+    - 3X ETF는 일일 변동성이 큼 → bar1 low 손절은 좁아 가짜 stop-out 빈발
+    - ATR×5% 손절은 14일 변동성에 적응 (여전히 tight하지만 noise 흡수)
+    - No TP = 큰 추세 끝까지 잡음 (EOD까지 hold)
+    - 백테스트(논문): TQQQ 2016~2023 +9,350%
+
+    Args:
+        df_today_5m: 오늘 5분봉 (bar1 = 첫 봉, 양봉/음봉/도지 판단용)
+        df_daily: 14일 + α 일봉 (ATR 계산용)
+        params: doji_threshold_pct, atr_stop_pct (5.0), atr_period (14), risk_pct_per_trade
+
+    Returns:
+        KISBuySignal:
+          - should_buy=True: 양봉 + ATR 가용 → stop_loss_price 절대가, take_profit_price=None
+          - should_buy=False: 도지/음봉/데이터 부족
+    """
+    if df_today_5m is None or len(df_today_5m) < 1:
+        return KISBuySignal(False, "Bar-1 데이터 없음")
+
+    bar1 = df_today_5m.iloc[0]
+    o = float(bar1["open"])
+    c = float(bar1["close"])
+
+    if o <= 0:
+        return KISBuySignal(False, "Bar-1 open 가격 이상")
+
+    body_pct = abs(c - o) / o * 100
+
+    # 도지 — 매매 X
+    if body_pct < params.doji_threshold_pct:
+        return KISBuySignal(
+            False,
+            f"Bar-1 도지 (몸통 {body_pct:.3f}% < {params.doji_threshold_pct}% — 매매 X)",
+        )
+
+    # 음봉 — 인버스 ETF는 별도 호출
+    if c < o:
+        return KISBuySignal(
+            False,
+            f"Bar-1 음봉 ${c:.2f} < ${o:.2f} — 이 종목 매수 X (인버스 ETF 별도 평가)",
+        )
+
+    # 양봉 — ATR 손절 계산
+    atr = calc_atr(df_daily, period=params.atr_period)
+    if atr is None:
+        return KISBuySignal(
+            False,
+            f"ATR({params.atr_period}d) 계산 불가 — 일봉 데이터 부족 ({len(df_daily) if df_daily is not None else 0}봉)",
+        )
+
+    entry = c  # 첫 봉 close ≈ 둘째 봉 open (실 체결가는 주문 시 결정)
+    stop_distance = (params.atr_stop_pct / 100.0) * atr  # 0.05 × ATR
+    stop = entry - stop_distance
+    if stop <= 0 or stop_distance <= 0:
+        return KISBuySignal(
+            False,
+            f"ATR 손절 계산 이상 (entry ${entry:.2f}, ATR ${atr:.2f}, stop_dist ${stop_distance:.4f})",
+        )
+
+    # 신뢰도: 양봉 몸통 + ATR 대비 진입가 (정성적)
+    conf = round(min(0.95, body_pct / 2.0), 2)
+
+    return KISBuySignal(
+        True,
+        f"3X-ATR 양봉 ${o:.2f}→${c:.2f} (+{body_pct:.2f}%) | "
+        f"ATR(14d)=${atr:.2f} → 손절 ${stop:.2f} (dist ${stop_distance:.4f}, "
+        f"{params.atr_stop_pct}% × ATR) | TP 없음 (EOD까지)",
+        confidence=max(conf, 0.3),
+        stop_loss_price=stop,
+        take_profit_price=None,  # 3X 변형: TP 없음, EOD가 익절
+        risk_per_share=stop_distance,
     )
 
 
