@@ -1020,8 +1020,8 @@ class Database:
                     ("ASML",  "ASML",           "NASD", 0, "semi",    0, ""),
                     ("SNDK",  "SanDisk",        "NASD", 0, "semi",    0, "2025년 WDC 분사"),
                     # 레버리지 ETF (정수 매매)
-                    ("SOXL",  "Direxion Semi Bull 3X",        "AMEX", 1, "leveraged", 1, "기본 활성 — 첫날 단타"),
-                    ("SOXS",  "Direxion Semi Bear 3X",        "AMEX", 1, "leveraged", 0, "반도체 하락 베팅"),
+                    ("SOXL",  "Direxion Semi Bull 3X",        "AMEX", 1, "leveraged", 1, "#364 Pure Zarattini 페어 활성"),
+                    ("SOXS",  "Direxion Semi Bear 3X",        "AMEX", 1, "leveraged", 1, "#364 Pure Zarattini 페어 활성 (음봉 시 매수 = 효과적 숏)"),
                     ("TQQQ",  "ProShares UltraPro QQQ 3X",    "AMEX", 1, "leveraged", 0, "나스닥100 3X"),
                     ("SQQQ",  "ProShares UltraPro Short 3X",  "AMEX", 1, "leveraged", 0, "나스닥100 -3X"),
                     ("USD",   "ProShares Ultra Semi 2X",      "AMEX", 1, "leveraged", 0, "반도체 2X"),

@@ -49,9 +49,11 @@ from cryptobot.bot.config import config
 from cryptobot.bot.kis_strategy import (
     KISStrategyParams,
     calc_position_size,
+    calc_position_size_risk_based,
     evaluate_buy,
     evaluate_buy_breakout,
     evaluate_sell,
+    evaluate_zarattini_bar1,
 )
 from cryptobot.data.database import Database
 from cryptobot.data.recorder import DataRecorder
@@ -64,6 +66,19 @@ from cryptobot.notifier.slack import SlackNotifier
 logger = logging.getLogger(__name__)
 NY = ZoneInfo("America/New_York")
 NY_CLOSE_TIME = dtime(16, 0)  # 미국 정규장 마감 16:00 NY
+
+# #364 Pure Zarattini Bar-1 페어 — 인버스 ETF가 짝. 둘 중 하나가 보유 중이면 짝은 매수 X.
+# 한국 KIS API는 미국주식 공매도 불가 → 음봉 시 인버스 ETF 매수로 효과적 숏.
+ZARATTINI_PAIRS = {
+    "SOXL": "SOXS",  # 반도체 강세 3X ↔ 약세 3X (#364 시작 페어)
+    "SOXS": "SOXL",
+    "TQQQ": "SQQQ",  # NASDAQ-100 3X ↔ 약세 3X
+    "SQQQ": "TQQQ",
+    "SPXL": "SPXS",  # S&P500 3X ↔ 약세 3X
+    "SPXS": "SPXL",
+    "TECL": "TECS",  # 기술주 3X ↔ 약세 3X
+    "TECS": "TECL",
+}
 
 # 디폴트 풀 (#285): 빅테크/반도체/레버리지/크립토/EV/AI 분산
 # env KIS_US_UNIVERSE 로 오버라이드 가능
@@ -125,12 +140,18 @@ def _build_params(universe_size: int) -> KISStrategyParams:
     is_day_trading = os.getenv("KIS_US_DAY_TRADING", "false").lower() == "true"
     strategy = os.getenv("KIS_US_STRATEGY", "breakout" if is_day_trading else "mean_reversion").strip().lower()
 
-    if is_day_trading and strategy == "breakout":
-        # Zarattini 논문 모드 — 익절/트레일링 X (EOD 청산), ORB 5분
-        default_tp = "999"     # 사실상 무한
-        default_sl = "-4"      # 폴백 (OR_low가 우선)
-        default_tr = "-99"     # 사실상 끔
-        default_orb = "5"      # 논문 5분 ORB
+    if is_day_trading and strategy == "zarattini_bar1":
+        # #364 Pure Zarattini Bar-1 — 첫 5분봉 양봉만 진입, 10R TP, OR_low SL
+        default_tp = "999"     # 절대가 take_profit_price가 우선
+        default_sl = "-4"      # 폴백 (stop_loss_price가 우선)
+        default_tr = "-99"     # 트레일링 끔 (논문엔 트레일링 없음)
+        default_orb = "5"      # 첫 5분봉
+    elif is_day_trading and strategy == "breakout":
+        # 기존 ORB+VWAP+거래량 spike 혼합 모드
+        default_tp = "999"
+        default_sl = "-4"
+        default_tr = "-99"
+        default_orb = "5"
     elif is_day_trading:
         default_tp = "4"
         default_sl = "-4"
@@ -203,6 +224,9 @@ class KISUSBot:
         self._running = False
         self._last_buy_price: dict[str, float] = {}  # USD 기준
         self._highest_since_buy: dict[str, float] = {}
+        # #364 Pure Zarattini Bar-1: 매수 시 take_profit_price (10R) 보존
+        self._take_profit_price_at_buy: dict[str, float] = {}
+        self._pending_take_profit: float | None = None
         self._last_sell_at: dict[str, float] = {}  # 종목별 마지막 매도 timestamp (epoch)
         self._stop_loss_price_at_buy: dict[str, float] = {}  # #305 ORB 모드 OR_low 손절가
         self._pending_stop_loss: float | None = None  # #305 매수 직전 OR_low 임시
@@ -286,19 +310,38 @@ class KISUSBot:
             except Exception:
                 logger.info("[heartbeat] tick=%d, NY %s (잔고 조회 실패)", self._tick_count, ny)
 
-        # #309: 매수 후보 수집 → 신뢰도 정렬 → 자금 가능한 만큼 순차 매수
-        # 보유 종목은 즉시 매도 평가 (분기 차단으로 매수와 충돌 X)
-        buy_candidates: list[tuple[str, float, object, float | None]] = []  # (symbol, price, signal, sl_price)
+        # 매수 후보 수집 → 신뢰도 정렬 → 자금 가능한 만큼 순차 매수.
+        # 보유 종목은 즉시 매도 평가 (분기 차단으로 매수와 충돌 X).
+        # #364 buy_candidates 튜플: (symbol, price, signal, sl_price, tp_price, risk_per_share)
+        buy_candidates: list[tuple[str, float, object, float | None, float | None, float | None]] = []
+        # 페어 mutex — 보유 중인 인버스 ETF 짝을 미리 모아둠
+        held_set: set[str] = set()
+        for symbol in self._universe:
+            try:
+                if self._exchange.get_balance(symbol) > 0:
+                    held_set.add(symbol)
+            except APIError:
+                pass
+
         for symbol in self._universe:
             try:
                 price = self._exchange.get_current_price(symbol)
-                holdings = self._exchange.get_balance(symbol)
-                if holdings > 0:
+                if symbol in held_set:
                     self._evaluate_sell_with_price(symbol, price)
-                else:
-                    sig, sl = self._evaluate_buy_only(symbol, price)
-                    if sig and getattr(sig, "should_buy", False):
-                        buy_candidates.append((symbol, price, sig, sl))
+                    continue
+
+                # #364 페어 mutex — 인버스 짝이 보유 중이면 매수 평가 자체 skip
+                inverse = ZARATTINI_PAIRS.get(symbol)
+                if inverse and inverse in held_set:
+                    logger.debug("%s 페어 인버스(%s) 보유 중 — 매수 skip", symbol, inverse)
+                    continue
+
+                result = self._evaluate_buy_only(symbol, price)
+                if result is None:
+                    continue
+                sig, sl, tp, rps = result
+                if sig and getattr(sig, "should_buy", False):
+                    buy_candidates.append((symbol, price, sig, sl, tp, rps))
             except APIError as e:
                 logger.warning("%s 평가 실패: %s", symbol, e)
             except Exception as e:
@@ -339,9 +382,12 @@ class KISUSBot:
         except APIError as e:
             logger.warning("%s OHLCV 조회 실패 (매도 판단은 단순 룰로): %s", symbol, e)
 
-        # #305 ORB 모드: OR_low 가격 기반 손절 우선 (없으면 절대% 폴백)
         sl_price = self._stop_loss_price_at_buy.get(symbol)
-        signal_ = evaluate_sell(df, price_usd, buy_price, prev_high, self._params, stop_loss_price=sl_price)
+        tp_price = self._take_profit_price_at_buy.get(symbol)  # #364 10R 익절가
+        signal_ = evaluate_sell(
+            df, price_usd, buy_price, prev_high, self._params,
+            stop_loss_price=sl_price, take_profit_price=tp_price,
+        )
         if signal_.should_sell:
             pnl_pct = (price_usd - buy_price) / buy_price * 100
             logger.info(
@@ -390,10 +436,11 @@ class KISUSBot:
             logger.debug("evaluation 기록 실패: %s", e)
 
     def _evaluate_buy_only(self, symbol: str, price_usd: float):
-        """#309: 매수 평가만 (실 매수 X). 신호 + OR_low 손절가 반환.
+        """매수 평가만 (실 매수 X). 신호 + 손절/익절가 + 주당 리스크 반환.
 
         Returns:
-            (signal, stop_loss_price). 매수 미충족/스킵 시 (None, None).
+            (signal, stop_loss_price, take_profit_price, risk_per_share)
+            매수 미충족/스킵 시 None.
         """
         # 단타 매수 금지 윈도우 (마감 30분 전부터)
         if self._params.day_trading_mode:
@@ -403,7 +450,7 @@ class KISUSBot:
                     "%s 마감 임박 매수금지 (%.0f분 남음, 임계 %d분)",
                     symbol, mins, self._params.no_buy_window_minutes_before_close,
                 )
-                return None, None
+                return None
 
         # 짧은 재매수 쿨다운 (옵션) — 매도 직후 노이즈 매매 회피
         if self._rebuy_cooldown_sec > 0:
@@ -414,13 +461,12 @@ class KISUSBot:
                     "%s 재매수 쿨다운 (%ds 중 %ds 경과)",
                     symbol, self._rebuy_cooldown_sec, int(elapsed),
                 )
-                return None, None
+                return None
 
         try:
             df = self._exchange.get_ohlcv(symbol, interval=self._ohlcv_interval, count=80)
         except APIError as e:
             logger.warning("%s OHLCV 조회 실패 — 매수 판단 스킵: %s", symbol, e)
-            # #311: 사용자 가시성 — OHLCV 실패도 평가 기록 (KIS 분봉 미지원 종목 식별용)
             err_msg = str(e)[:120]
             try:
                 self._db.execute(
@@ -432,50 +478,77 @@ class KISUSBot:
                 self._db.commit()
             except Exception:
                 pass
-            return None, None
+            return None
 
-        # #303 전략 분기 — breakout (VWAP+ORB+거래량) vs mean_reversion (RSI)
-        if self._strategy == "breakout":
-            ny_today = datetime.now(NY).date()
-            df_today = df[df.index.date == ny_today] if hasattr(df.index, "date") else df
+        # 전략 분기
+        ny_today = datetime.now(NY).date()
+        df_today = df[df.index.date == ny_today] if hasattr(df.index, "date") else df
+
+        if self._strategy == "zarattini_bar1":
+            # #364 Pure Zarattini — 첫 5분봉 방향성만 본다
+            signal_ = evaluate_zarattini_bar1(df_today, params=self._params)
+            sl_price = signal_.stop_loss_price
+            tp_price = signal_.take_profit_price
+            rps = signal_.risk_per_share
+        elif self._strategy == "breakout":
             try:
                 bar_min = int(self._ohlcv_interval.replace("min", ""))
             except ValueError:
                 bar_min = 5
             signal_ = evaluate_buy_breakout(df_today, price_usd, bar_minutes=bar_min, params=self._params)
             sl_price = signal_.stop_loss_price
+            tp_price = None
+            rps = None
         else:
             signal_ = evaluate_buy(df, price_usd, self._params)
             sl_price = None
+            tp_price = None
+            rps = None
 
-        # 매 틱 평가 결과 DB 기록 (사용자 가시성)
         self._record_evaluation(symbol, price_usd, signal_, df=df, holds_already=False)
         if not signal_.should_buy:
             logger.debug("%s 매수 미판정: %s", symbol, signal_.reason)
-            return signal_, None
+            return signal_, None, None, None
 
-        return signal_, sl_price
+        return signal_, sl_price, tp_price, rps
 
     def _execute_buy_queue(self, candidates: list) -> None:
-        """#309: 매수 후보 신뢰도 정렬 후 순차 매수. 자금 부족하면 다음 후보 skip."""
+        """매수 후보 신뢰도 정렬 후 순차 매수. 자금 부족하면 다음 후보 skip.
+
+        candidates 튜플: (symbol, price, sig, sl_price, tp_price, risk_per_share)
+        Pure Zarattini 모드는 risk_per_share 기반 1% 사이징, 그 외엔 풀매수.
+        """
         try:
             budget_usd = self._exchange.get_balance("USD")
         except APIError as e:
             logger.warning("USD 예수금 조회 실패 — 매수 큐 스킵: %s", e)
             return
 
-        for symbol, price_usd, sig, sl_price in candidates:
+        for entry in candidates:
+            symbol, price_usd, sig, sl_price, tp_price, rps = entry
             if budget_usd <= 0:
                 logger.info("USD 잔고 0 — 남은 후보 %d건 매수 스킵", len([c for c in candidates if c[0] != symbol]))
                 break
 
             is_fractional = symbol not in INTEGER_ONLY_TICKERS
-            qty, size_reason = calc_position_size(
-                available_budget=budget_usd,
-                current_price=price_usd,
-                fractional=is_fractional,
-                params=self._params,
-            )
+
+            # #364 zarattini_bar1: 1% 리스크 기반 사이징 (rps 있을 때)
+            if self._strategy == "zarattini_bar1" and rps and rps > 0:
+                qty, size_reason = calc_position_size_risk_based(
+                    available_budget=budget_usd,
+                    current_price=price_usd,
+                    risk_per_share=rps,
+                    fractional=is_fractional,
+                    params=self._params,
+                )
+            else:
+                qty, size_reason = calc_position_size(
+                    available_budget=budget_usd,
+                    current_price=price_usd,
+                    fractional=is_fractional,
+                    params=self._params,
+                )
+
             if qty <= 0:
                 logger.info(
                     "%s 매수 신호 conf=%.2f 이나 사이즈 0 ($%.2f, %s) — 스킵",
@@ -488,8 +561,8 @@ class KISUSBot:
                 symbol, sig.confidence, price_usd, sig.reason, size_reason,
             )
             self._pending_stop_loss = sl_price
+            self._pending_take_profit = tp_price
             self._buy(symbol, qty, price_usd, sig.reason)
-            # 매수 후 잔고 차감 (실 잔고 다음 호출 시 반영, 캐시값은 추정)
             cost = qty * price_usd
             budget_usd = max(0.0, budget_usd - cost)
 
@@ -521,10 +594,14 @@ class KISUSBot:
 
         self._last_buy_price[symbol] = result.price
         self._highest_since_buy[symbol] = result.price
-        # #305 ORB 모드: 매수 시그널의 stop_loss_price (OR_low) 저장
+        # ORB / Pure Zarattini 모드: stop_loss_price (OR_low) 저장
         if hasattr(self, "_pending_stop_loss") and self._pending_stop_loss is not None:
             self._stop_loss_price_at_buy[symbol] = self._pending_stop_loss
             self._pending_stop_loss = None
+        # #364 Pure Zarattini: 10R take_profit_price 저장
+        if self._pending_take_profit is not None:
+            self._take_profit_price_at_buy[symbol] = self._pending_take_profit
+            self._pending_take_profit = None
         self._recorder.record_trade(
             coin=symbol,
             market="kis_us",
@@ -533,7 +610,7 @@ class KISUSBot:
             amount=result.amount,
             total_krw=result.total_krw,
             fee_krw=result.fee_krw,
-            strategy="kis_conservative",
+            strategy=f"kis_us_{self._strategy}",  # #364: 전략 모드 명시 (백테스트 추적용)
             trigger_reason=reason,
             order_uuid=result.order_uuid,
         )
@@ -560,7 +637,7 @@ class KISUSBot:
             amount=result.amount,
             total_krw=result.total_krw,
             fee_krw=result.fee_krw,
-            strategy="kis_conservative",
+            strategy=f"kis_us_{self._strategy}",  # #364: 전략 모드 명시
             trigger_reason=reason,
             profit_pct=pnl_pct,
             order_uuid=result.order_uuid,
@@ -571,7 +648,8 @@ class KISUSBot:
             )
         self._last_buy_price.pop(symbol, None)
         self._highest_since_buy.pop(symbol, None)
-        self._stop_loss_price_at_buy.pop(symbol, None)  # #305 OR_low 손절가 정리
+        self._stop_loss_price_at_buy.pop(symbol, None)
+        self._take_profit_price_at_buy.pop(symbol, None)  # #364 10R 익절가 정리
         self._last_sell_at[symbol] = time.time()  # 재매수 쿨다운 기준
 
     def _on_shutdown(self, *_args) -> None:

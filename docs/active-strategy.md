@@ -1,10 +1,12 @@
 # 활성 전략 추적
 
-> **이 문서의 목적**: 코인봇은 실험적으로 매매 전략과 파라미터를 자주 변경합니다. 다음 세션의 Claude(또는 본인)가 *지금 어떤 알고리즘이 돌고 있는지 / 왜 / 백테스트 결과 어땠는지*를 빠르게 파악하기 위한 단일 진입점.
+> **이 문서의 목적**: 봇 전략과 파라미터가 자주 변경됩니다. 다음 세션의 Claude(또는 본인)가 *지금 어떤 알고리즘이 돌고 있는지 / 왜 / 백테스트 결과 어땠는지*를 빠르게 파악하기 위한 단일 진입점. 봇별로 섹션 분리.
 >
 > **갱신 규칙**: 전략 / 파라미터 / 활성 옵션 변경 시 이 문서를 같은 PR에서 갱신할 것. CLAUDE.md에 명시.
 
 ---
+
+# 🪙 코인봇 (Upbit)
 
 ## 현재 활성 전략
 
@@ -109,4 +111,71 @@ KST 11:00 ─── EOD: 보유 코인 전부 강제 매도
 
 KIS US 봇은 **별도 sell 경로**(`src/cryptobot/bot/kis_strategy.py:evaluate_sell`)를 사용. `BaseStrategy.check_trailing_stop` 및 `roi_table` 영향 없음. Option 1 변경의 영향도 받지 않음.
 
-KIS US 룰: ORB 5분, 30분 형성, OR_low 손절, EOD 마감 10분 전 강제 청산, 트레일링 끔 (Zarattini 정통).
+상세는 아래 *KIS 미국주식 봇* 섹션 참조.
+
+---
+
+# 🇺🇸 KIS 미국주식 봇
+
+## 현재 활성 전략
+
+**`zarattini_bar1`** — Pure Zarattini Bar-1 directional (#364, 2026-05-09)
+
+### 핵심 파라미터
+
+| 항목 | 값 | env 오버라이드 |
+|---|---|---|
+| 종목 페어 | **SOXL/SOXS** (반도체 강세 3X / 약세 3X) | `kis_us_symbols.enabled` DB |
+| 봉 | 5분봉 | `KIS_US_OHLCV_INTERVAL` |
+| OR 형성 | 첫 5분봉 (NY 09:30~09:35) | — |
+| 진입 룰 | 첫 봉 양봉 → 종목 매수 / 음봉/도지 → skip | — |
+| 도지 임계 | 0.05% (몸통 비율) | `KISStrategyParams.doji_threshold_pct` |
+| 손절 | 첫 봉 low (절대가) | — |
+| **익절** | **10R = entry + 10×(entry−stop)** | `KISStrategyParams.r_multiple_target` |
+| EOD | NY 15:50 (마감 10분 전) | `KIS_US_FORCE_SELL_BEFORE_CLOSE_MIN` |
+| 사이징 | 1% 리스크/거래 | `KISStrategyParams.risk_pct_per_trade` |
+| 페어 mutex | SOXL ↔ SOXS 동시 보유 X | `ZARATTINI_PAIRS` 상수 |
+
+### 핵심 로직 (논문 그대로)
+
+```
+NY 09:30 ─── SOXL/SOXS 첫 5분봉 동시 형성 시작
+NY 09:35 ─── 둘째 봉 시작 = 진입 평가 시점
+        │
+        ├─ SOXL bar1 양봉 → SOXL 매수 (반도체 상승 베팅)
+        ├─ SOXS bar1 양봉 → SOXS 매수 (반도체 하락 베팅, 효과적 숏)
+        └─ 둘 다 도지 → 그날 매매 X (논문 정신)
+
+진입 시: 손절가 = bar1 low / 익절가 = entry + 10R / EOD = 15:50
+페어 mutex: SOXL/SOXS 둘 다 동시 매수 X (mirror라 자연 방지 + 명시 체크)
+```
+
+### 운영 자본
+
+400,000 KRW (~$290 USD). 1% 리스크/거래 = $2.90.
+
+### 변경 이력 (KIS US)
+
+| 날짜 | PR | 변경 | 사유 |
+|---|---|---|---|
+| 2026-05-09 | #364 | Pure Zarattini Bar-1 채택 (SOXL/SOXS 페어) | 기존 ORB+VWAP+거래량 spike 혼합은 시그널 거의 안 발생, 논문 정신 회복 |
+| 2026-05-08 | #305 | Zarattini ORB 모드 추가 (SOXL only) | 논문 80% 충실 — 진입 트리거 + 양방향 갭 |
+
+### 데이터 출처
+
+- 실거래 매매: `trades` 테이블 (`market='kis_us'`, `strategy='kis_us_zarattini_bar1'`)
+- 매 틱 평가: `kis_us_evaluations` 테이블 (bar1 양봉/음봉/도지 reason)
+- 분봉 OHLCV: KIS API (실시간) — DB 저장 없음. 백테스트는 별도 분봉 수집 필요
+
+### 후속 (별개 일감)
+
+- TQQQ/SQQQ 분봉 KIS API 가용성 검증 → 가능 시 페어 추가
+- KIS API 5분봉 히스토리 수집 → retrospective 백테스트 가능
+- 1% 리스크 외 다른 사이징(0.5%/2%) sweep
+- 도지 임계 0.05% 외 변형 sweep
+
+### 논문 자료
+
+- **원문 (SSRN PDF)**: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4416622
+- **The Robust Trader 한국어식 정리**: https://therobusttrader.com/can-day-trading-really-be-profitable-rules-backtest-statistics-performance-analysis/
+- **이슈 #364 코멘트**에 핵심 사양 / 검증 결과 / 도지 처리 / 우리 구현 차이 정리됨

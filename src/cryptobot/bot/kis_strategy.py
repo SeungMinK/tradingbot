@@ -46,6 +46,10 @@ class KISBuySignal:
     confidence: float = 0.0  # 0~1
     # #305 Zarattini ORB 모드: 매수 시 OR_low를 손절 가격으로 전달
     stop_loss_price: float | None = None
+    # #364 Pure Zarattini Bar-1: 10R 익절 절대가
+    take_profit_price: float | None = None
+    # #364 Pure Zarattini Bar-1: 1% 리스크 사이징용 risk_per_share (= |entry − stop|)
+    risk_per_share: float | None = None
 
 
 @dataclass
@@ -79,9 +83,13 @@ class KISStrategyParams:
     # #303 VWAP+ORB+거래량 spike 전략 파라미터
     # 학술 근거: Zarattini & Aziz (2023) QQQ 5분 ORB → 누적 +1,484%/8년. TQQQ/SOXL 등 3X ETF 권장.
     # 표준: RVOL 2~3x, R:R 1:2~1:3, 시간대 10:00~12:00 EST 가장 강함.
-    orb_minutes: int = 30                # ORB 형성 시간 (학술: 5~30분, 30분=노이즈 균형)
+    orb_minutes: int = 30                # ORB 형성 시간 (학술: 5~30분, 30분=noise 균형)
     volume_spike_multiplier: float = 2.0 # 평균 거래량 × N 이상이면 spike (학술 권고 2~3x)
     vwap_proximity_pct: float = 1.0      # 가격이 VWAP 위 N% 이내면 풀백 진입 가능
+    # #364 Pure Zarattini Bar-1 모드 파라미터
+    doji_threshold_pct: float = 0.05     # bar1 |close-open|/open < N% 이면 도지로 판정 (skip)
+    risk_pct_per_trade: float = 1.0      # 계좌 대비 % 리스크/거래 (포지션 사이징)
+    r_multiple_target: float = 10.0      # 익절 = entry + R×(entry−stop)
 
 
 def calc_position_size(
@@ -254,6 +262,137 @@ def evaluate_buy_breakout(
     )
 
 
+def evaluate_zarattini_bar1(
+    df_today_5m: pd.DataFrame,
+    params: KISStrategyParams = KISStrategyParams(),
+) -> KISBuySignal:
+    """#364 Pure Zarattini Bar-1 directional 진입 판단.
+
+    논문(Zarattini & Aziz 2023) 정확 사양:
+    - 첫 5분봉(09:30~09:35) 양봉이면 둘째 봉 시작에 LONG 진입
+    - 도지(|close-open|/open < doji_threshold_pct%)면 패스
+    - 한국 KIS API는 미국주식 공매도 불가 → 음봉 케이스는 *이 함수 호출 측*에서
+      인버스 ETF(SOXS 등)에 대해 별도 호출하면 됨 (페어 자동 처리)
+
+    호출자가 df_today_5m을 NY 09:35 이후 시점에 한 번 평가하면 됨.
+    df는 최소 1봉(첫 5분봉) 이상 들어와야. 첫 봉이 시그널 결정.
+
+    Returns:
+        KISBuySignal:
+          - should_buy=True: 양봉, stop_loss_price=bar1_low,
+                             take_profit_price=entry+10R, risk_per_share 채워짐
+          - should_buy=False: 도지/음봉/데이터 부족
+    """
+    if df_today_5m is None or len(df_today_5m) < 1:
+        return KISBuySignal(False, "Bar-1 데이터 없음")
+
+    bar1 = df_today_5m.iloc[0]
+    o = float(bar1["open"])
+    h = float(bar1["high"])
+    l = float(bar1["low"])
+    c = float(bar1["close"])
+
+    if o <= 0:
+        return KISBuySignal(False, "Bar-1 open 가격 이상")
+
+    body_pct = abs(c - o) / o * 100  # bar1 몸통 비율 %
+
+    # 도지 — 방향성 X, 매매 X (논문 그대로)
+    if body_pct < params.doji_threshold_pct:
+        return KISBuySignal(
+            False,
+            f"Bar-1 도지 (몸통 {body_pct:.3f}% < {params.doji_threshold_pct}% — 매매 X)",
+        )
+
+    # 음봉 — 한국 일반 계좌는 공매도 X. 인버스 ETF는 별도 ticker로 호출됨.
+    if c < o:
+        return KISBuySignal(
+            False,
+            f"Bar-1 음봉 (close ${c:.2f} < open ${o:.2f}) — 이 종목 매수 X "
+            f"(인버스 ETF 별도 평가)",
+        )
+
+    # 양봉 — 둘째 봉 시작에 LONG 진입.
+    # 진입가는 호출자 시점의 *현재가* 또는 *둘째 봉 open* — 호출 시점에 따라 다름.
+    # 봇이 09:35 직후 평가 → 둘째 봉 open ≈ 첫 봉 close (보통 매우 가까움)
+    # 정확한 매수가는 주문 체결가로 결정.
+    entry = c  # 첫 봉 close ≈ 둘째 봉 open (proxy)
+    stop = l   # 첫 봉 low
+    risk_per_share = entry - stop
+    if risk_per_share <= 0:
+        return KISBuySignal(False, f"리스크 계산 불가 (bar1 close {c} ≤ low {l})")
+
+    target = entry + params.r_multiple_target * risk_per_share
+
+    # 신뢰도: 양봉 몸통이 클수록 ↑ (직관적: 큰 모멘텀일수록 강한 시그널)
+    conf = round(min(0.95, body_pct / 2.0), 2)  # 0.5%면 0.25, 2%면 0.95
+
+    return KISBuySignal(
+        True,
+        f"Bar-1 양봉 ${o:.2f}→${c:.2f} (+{body_pct:.2f}%) | "
+        f"손절 ${stop:.2f} (R=${risk_per_share:.2f}) | "
+        f"익절 {params.r_multiple_target:.0f}R = ${target:.2f}",
+        confidence=max(conf, 0.3),
+        stop_loss_price=stop,
+        take_profit_price=target,
+        risk_per_share=risk_per_share,
+    )
+
+
+def calc_position_size_risk_based(
+    available_budget: float,
+    current_price: float,
+    risk_per_share: float,
+    fractional: bool,
+    params: KISStrategyParams = KISStrategyParams(),
+) -> tuple[float, str]:
+    """#364 1% 리스크 기반 포지션 사이징 (Pure Zarattini).
+
+    논문 사양: 한 거래당 최대 손실 = 계좌 × risk_pct_per_trade%.
+    수량 = (계좌 × 0.01) / |entry − stop|.
+    실제 포지션 크기는 계좌 풀매수와 min 처리 (자본 한도).
+
+    Args:
+        available_budget: 가용 예산 (USD)
+        current_price: 매수가 (USD)
+        risk_per_share: |entry − stop| (주당 리스크 USD)
+        fractional: True면 소수점 매수 가능
+    """
+    if available_budget <= 0:
+        return 0.0, "가용 예산 없음"
+    if current_price <= 0:
+        return 0.0, "가격 정보 없음"
+    if risk_per_share <= 0:
+        return 0.0, "주당 리스크 0 이하"
+
+    # 1% 리스크 사이징
+    max_risk = available_budget * (params.risk_pct_per_trade / 100.0)
+    qty_by_risk = max_risk / risk_per_share
+
+    # 자본 한도
+    qty_by_budget = available_budget / current_price
+
+    qty_target = min(qty_by_risk, qty_by_budget)
+    constraint = "리스크" if qty_by_risk < qty_by_budget else "자본"
+
+    if not fractional:
+        qty = int(qty_target)
+        if qty < 1:
+            return 0.0, (
+                f"수량 0 (목표 {qty_target:.2f} < 1주, 리스크 ${max_risk:.2f}/주당 ${risk_per_share:.2f})"
+            )
+        return float(qty), (
+            f"{qty}주 (제약={constraint}, 리스크 ${max_risk:.2f}/{params.risk_pct_per_trade}%)"
+        )
+
+    qty = round(qty_target, 4)
+    if qty < 0.001:
+        return 0.0, "수량 < 0.001 (소수점 한도)"
+    return qty, (
+        f"{qty:.4f}주 (제약={constraint}, 리스크 ${max_risk:.2f}/{params.risk_pct_per_trade}%)"
+    )
+
+
 def evaluate_buy(
     df: pd.DataFrame,
     current_price: float,
@@ -309,29 +448,40 @@ def evaluate_sell(
     highest_since_buy: float | None,
     params: KISStrategyParams = KISStrategyParams(),
     stop_loss_price: float | None = None,
+    take_profit_price: float | None = None,
 ) -> KISSellSignal:
     """매도 판단. highest_since_buy는 외부에서 추적 (트레일링용).
 
     Args:
         stop_loss_price: #305 Zarattini ORB 모드 — 절대 가격 손절선 (OR_low).
             None이면 stop_loss_pct(%) 사용. 값 있으면 우선.
+        take_profit_price: #364 Pure Zarattini 모드 — 절대 가격 익절선 (10R).
+            None이면 take_profit_pct(%) 룰. 값 있으면 도달 시 즉시 익절.
     """
     if buy_price <= 0:
         return KISSellSignal(False, "매수가 미상")
 
     pnl_pct = (current_price - buy_price) / buy_price * 100
 
-    # 1-A. ORB 손절 (Zarattini 논문 모드) — 절대 가격
+    # 1-A. ORB 손절 (Zarattini ORB / Bar-1 공통) — 절대 가격
     if stop_loss_price is not None and stop_loss_price > 0 and current_price <= stop_loss_price:
         return KISSellSignal(
             True,
-            f"손절 OR_low ${stop_loss_price:.2f} 도달 (현재 ${current_price:.2f}, {pnl_pct:.2f}%)",
+            f"손절 ${stop_loss_price:.2f} 도달 (현재 ${current_price:.2f}, {pnl_pct:.2f}%)",
             is_profit_taking=False,
         )
 
     # 1-B. 절대% 손절 (기존)
     if pnl_pct <= params.stop_loss_pct:
         return KISSellSignal(True, f"손절 {pnl_pct:.2f}%", is_profit_taking=False)
+
+    # 1-C. #364 10R 익절 (Pure Zarattini 모드) — 절대 가격 도달 시 즉시 매도
+    if take_profit_price is not None and take_profit_price > 0 and current_price >= take_profit_price:
+        return KISSellSignal(
+            True,
+            f"10R 익절 ${take_profit_price:.2f} 도달 (현재 ${current_price:.2f}, {pnl_pct:+.2f}%)",
+            is_profit_taking=True,
+        )
 
     # 2. 트레일링 스탑 (수익 중일 때만)
     if highest_since_buy and highest_since_buy > buy_price:
