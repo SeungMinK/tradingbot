@@ -1,22 +1,30 @@
-"""VWAP + ORB + Volume Spike 단타 전략 (Zarattini 2023 코인 적용, #321).
+"""VWAP + ORB + Volume Spike 단타 전략 (Zarattini 2023 코인 적용, #321/#360).
 
 학술 근거: Zarattini & Aziz (2023) "Can Day Trading Really Be Profitable?"
 - QQQ 5분 ORB → 8년 누적 +1,484%, 연환산 알파 33%
 - TQQQ/SOXL 등 3X 레버리지 ETF 권고 → 변동성 큰 코인 적용 가설
 
-코인 적용 시 차이 (vs 미국주식):
-- 24/7 시장 → "EOD" 개념 = KST 09:00 (매일 아침 청산)
-- ORB 형성: KST 00:00~01:00 (자정 후 1시간) — 5분봉 12개
+Option 1 (#360, 2026-05-09 채택):
+- ORB 형성: KST 22:00~23:00 (US 개장 글로벌 변동성 피크 활용)
+- 진입 윈도우: 23:00~04:00 (5h)
+- EOD 청산: 다음날 KST 11:00
 - 봉 단위: 15분봉 (5분은 코인 노이즈 큼)
 - 거래량 spike: 1.5x (코인은 변동성 커서 살짝 완화)
 - 손절: OR_low (가변)
-- 익절: 트레일링 -2% (EOD 청산 보조)
+- 매도: 손절 + 트레일링 -3% + EOD
 
 매수 조건 (모두 충족):
-1. ORB 돌파 (가격 > OR_high)
-2. VWAP 강세 (가격 > 24시간 누적 VWAP)
-3. 거래량 spike (직전 봉 ≥ 평균 × 1.5)
-4. ORB 형성 완료 (자정 + 1시간 경과)
+1. 진입 윈도우 안 (23:00~04:00 KST)
+2. ORB 돌파 (가격 > OR_high)
+3. VWAP 강세 (가격 > 24시간 누적 VWAP)
+4. 거래량 spike (직전 봉 ≥ 평균 × 1.5)
+5. ORB 형성 완료 (22:00 + 1시간 경과)
+
+후보 옵션 백테스트 결과 (8 화이트리스트, ~3주):
+- Option 1 (현재): ORB 22 / 진입 5h / EOD 11 → 80% 승률 / 복리 +20.63%
+- Option 2: ORB 0 / 진입 5h / EOD 6 → 73% / +16.29%
+- Option 3: ORB 10 / 진입 4h / EOD 20 → 75% / +16.20%
+- Option 4: ORB 0 / 진입 2h / EOD 11 → 100%(7건) / +16.12%
 """
 
 from __future__ import annotations
@@ -34,18 +42,26 @@ from cryptobot.strategies.base import BaseStrategy, Signal, StrategyInfo
 logger = logging.getLogger(__name__)
 KST = ZoneInfo("Asia/Seoul")
 
-# EOD = 매일 KST N시 (사용자 정의 가능, env COIN_EOD_HOUR_KST)
-# 추천: 0시(자정, 사이클 24h) / 23시 / 9시. 호출 시점 평가 (env 변경 후 봇 재시작만 하면 반영).
-EOD_HOUR_KST = 9  # 디폴트 (테스트용 상수)
+# Option 1 디폴트 (#360, 백테스트 1위 조합)
+ORB_HOUR_KST = 22       # ORB 시작 KST 시 (env COIN_ORB_HOUR_KST)
+EOD_HOUR_KST = 11       # EOD 청산 KST 시 (env COIN_EOD_HOUR_KST)
+ENTRY_WINDOW_HOURS = 5  # ORB 형성(1h) 후 진입 허용 시간 (env COIN_ENTRY_WINDOW_HOURS)
+
+
+def _orb_hour() -> int:
+    return int(os.getenv("COIN_ORB_HOUR_KST", str(ORB_HOUR_KST)))
 
 
 def _eod_hour() -> int:
-    """현재 EOD 시간 (env 우선)."""
     return int(os.getenv("COIN_EOD_HOUR_KST", str(EOD_HOUR_KST)))
 
 
+def _entry_window_h() -> int:
+    return int(os.getenv("COIN_ENTRY_WINDOW_HOURS", str(ENTRY_WINDOW_HOURS)))
+
+
 class VwapOrbBreakout(BaseStrategy):
-    """VWAP + ORB + 거래량 spike 단타 (코인용, KST 자정 ORB + 09:00 EOD)."""
+    """VWAP + ORB + 거래량 spike 단타 (코인용, KST 22:00 ORB + 11:00 EOD)."""
 
     def __init__(self, params=None) -> None:
         super().__init__(params)
@@ -59,8 +75,8 @@ class VwapOrbBreakout(BaseStrategy):
             display_name="VWAP+ORB 단타 (Zarattini)",
             description=(
                 "Zarattini 2023 논문 기반 단타 전략. "
-                "KST 자정 후 1시간 ORB 형성 → 돌파 + VWAP 강세 + 거래량 spike 시 매수. "
-                "KST 09:00 EOD 청산. 변동성 큰 종목에 효과적."
+                "KST 22:00 후 1시간 ORB 형성 → 23:00~04:00 진입 윈도우 안에서 "
+                "돌파 + VWAP 강세 + 거래량 spike 시 매수. KST 11:00 EOD 청산."
             ),
             market_states=["bullish", "sideways"],
             timeframe="15m",
@@ -68,15 +84,17 @@ class VwapOrbBreakout(BaseStrategy):
         )
 
     def check_buy(self, df: pd.DataFrame, current_price: float) -> Signal:
-        """ORB 돌파 + VWAP + 거래량 spike 평가.
+        """ORB 돌파 + VWAP + 거래량 spike + 진입 윈도우 평가.
 
-        df는 15분봉 OHLCV (오늘 KST 자정 이후 봉만 들어와야).
+        df는 15분봉 OHLCV (현재 세션 시작 후 봉만 들어와야).
         호출자가 시점 필터링 책임.
         """
+        if not is_entry_window():
+            return Signal("hold", 0.0, "진입 윈도우 외 (휴식)")
+
         if df is None or len(df) == 0:
             return Signal("hold", 0.0, "데이터 없음")
 
-        # ORB 형성 봉 수 (자정 + 1시간 = 15분봉 4개)
         bars_needed = max(1, self._orb_minutes // self._bar_minutes)
         if len(df) < bars_needed + 1:
             return Signal("hold", 0.0, f"ORB 형성 중 ({len(df)}/{bars_needed + 1}봉)")
@@ -128,7 +146,7 @@ class VwapOrbBreakout(BaseStrategy):
             f"VWAP {vwap:.2f} (+{vwap_strength*100:.2f}%) | 거래량 {spike_ratio:.1f}x | "
             f"손절 OR_low {or_low:.2f}",
             trigger_value=or_high,
-            stop_loss=or_low,  # OR_low를 손절가로 (가변)
+            stop_loss=or_low,
         )
 
     def check_sell(self, df: pd.DataFrame, current_price: float, buy_price: float) -> Signal:
@@ -136,7 +154,7 @@ class VwapOrbBreakout(BaseStrategy):
 
         BaseStrategy.check_trailing_stop을 호출하지 않음 — 그 안의 roi_table
         시간 기반 익절(+0.8%/60분 등)이 ORB 단타의 큰 추세를 너무 일찍 자름.
-        EOD 청산(KST 09:00)이 보유 시간 캡 역할을 이미 하므로 시간 ROI 룰 불필요.
+        EOD 청산이 보유 시간 캡 역할.
         """
         if self._highest_price is None or current_price > self._highest_price:
             self._highest_price = current_price
@@ -167,9 +185,9 @@ class VwapOrbBreakout(BaseStrategy):
 
 
 def is_eod_window(now: datetime | None = None, window_minutes: int = 5) -> bool:
-    """KST 09:00~09:05 사이면 True (EOD 청산 윈도우).
+    """EOD 시점 ±window_minutes 사이면 True (강제 청산 윈도우).
 
-    매일 아침 9시 정각 ± 5분에 보유 코인 강제 매도.
+    EOD 시각은 _eod_hour() (env COIN_EOD_HOUR_KST 또는 디폴트 KST 11:00).
     """
     if now is None:
         now = datetime.now(KST)
@@ -180,8 +198,35 @@ def is_eod_window(now: datetime | None = None, window_minutes: int = 5) -> bool:
     return delta <= window_minutes * 60
 
 
-def filter_today_bars(df: pd.DataFrame, now: datetime | None = None) -> pd.DataFrame:
-    """KST 자정 이후 봉만 필터 (ORB/VWAP는 당일 데이터 사용).
+def is_entry_window(now: datetime | None = None) -> bool:
+    """현재 시각이 진입 허용 윈도우 안인지.
+
+    진입 윈도우 = ORB 형성 후(orb_hour + 1) ~ orb_hour + 1 + entry_window_h.
+    Option 1 디폴트: 23:00 ~ 04:00 (자정 wrap).
+    """
+    if now is None:
+        now = datetime.now(KST)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=KST)
+
+    orb_h = _orb_hour()
+    window_h = _entry_window_h()
+    entry_start = (orb_h + 1) % 24
+    entry_end = (orb_h + 1 + window_h) % 24
+
+    h = now.hour
+    if entry_start <= entry_end:
+        return entry_start <= h < entry_end
+    # 자정 wrap (예: 23 → 04)
+    return h >= entry_start or h < entry_end
+
+
+def filter_session_bars(df: pd.DataFrame, now: datetime | None = None) -> pd.DataFrame:
+    """현재 시점 기준 가장 최근 ORB 시작점 이후 봉만 필터.
+
+    ORB hour가 22면 22:00~다음날 11:00이 한 세션. 호출 시점에 따라:
+    - now가 22:00 이상 (당일 22~23:59): 오늘 22:00부터
+    - now가 22:00 미만 (다음날 00:00~21:59): 어제 22:00부터
 
     df의 index가 datetime이어야. (Upbit pyupbit는 KST datetime index 반환)
     """
@@ -189,9 +234,20 @@ def filter_today_bars(df: pd.DataFrame, now: datetime | None = None) -> pd.DataF
         return df
     if now is None:
         now = datetime.now(KST)
-    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    orb_h = _orb_hour()
+    if now.hour >= orb_h:
+        session_start = now.replace(hour=orb_h, minute=0, second=0, microsecond=0)
+    else:
+        session_start = (now - timedelta(days=1)).replace(
+            hour=orb_h, minute=0, second=0, microsecond=0
+        )
+
     if df.index.tz is None:
-        # naive index — KST 가정
-        midnight_naive = midnight.replace(tzinfo=None)
-        return df[df.index >= midnight_naive]
-    return df[df.index >= midnight]
+        session_start_naive = session_start.replace(tzinfo=None)
+        return df[df.index >= session_start_naive]
+    return df[df.index >= session_start]
+
+
+# 하위 호환: 기존 import 유지 (별칭)
+filter_today_bars = filter_session_bars
