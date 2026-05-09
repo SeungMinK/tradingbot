@@ -171,7 +171,7 @@ export default function PublicDashboardPage() {
             <div className="public-header-tag">코인 + 주식 자동매매 · {operatingDays}일째 운영</div>
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div className="flex items-center gap-2.5">
           <button
             className="theme-toggle"
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
@@ -225,7 +225,7 @@ export default function PublicDashboardPage() {
                   <div className="pnl-hero-value" style={{ color: totalKisPct > 0 ? "#34d399" : totalKisPct < 0 ? "#f87171" : "var(--text-secondary)" }}>
                     {kisSells.length > 0
                       ? `${totalKisPct >= 0 ? "+" : ""}${totalKisPct.toFixed(2)}%`
-                      : <span style={{ fontSize: 24 }}>매매 대기 중</span>}
+                      : <span className="text-2xl">매매 대기 중</span>}
                   </div>
                   <div className="pnl-hero-sub">
                     체결 {kisSells.length}건 · 승률 {winRate.toFixed(0)}% (승 {winCount} / 패 {lossCount})
@@ -249,7 +249,7 @@ export default function PublicDashboardPage() {
             </div>
 
             {/* KIS 매매 내역 */}
-            <div className="card" style={{ marginTop: 16 }}>
+            <div className="card mt-4">
               <div className="card-title">KIS 매매 내역 (최근 30건)</div>
               {kisTrades.length === 0 ? (
                 <div className="empty-state" style={{ padding: 32, textAlign: "center", color: "var(--text-muted, #888)" }}>
@@ -278,7 +278,7 @@ export default function PublicDashboardPage() {
                       {kisTrades.slice(0, 30).map((t: any, i: number) => (
                         <tr key={t.id || i}>
                           <td style={{ fontSize: 11 }}>{formatDateTime(t.timestamp).replace(/\d{4}\. /, "")}</td>
-                          <td style={{ fontWeight: 600 }}>{t.coin}</td>
+                          <td className="font-semibold">{t.coin}</td>
                           <td>
                             <span className={`badge ${t.side === "buy" ? "badge-green" : "badge-red"}`} style={{ fontSize: 10 }}>
                               {t.side === "buy" ? "매수" : "매도"}
@@ -287,7 +287,7 @@ export default function PublicDashboardPage() {
                           <td className={t.profit_pct > 0 ? "positive" : t.profit_pct < 0 ? "negative" : ""}>
                             {t.profit_pct != null ? `${t.profit_pct > 0 ? "+" : ""}${t.profit_pct.toFixed(2)}%` : "-"}
                           </td>
-                          <td style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                          <td className="text-xs text-muted-foreground">
                             {(t.trigger_reason || "").slice(0, 80)}
                           </td>
                         </tr>
@@ -432,7 +432,7 @@ export default function PublicDashboardPage() {
         const losses = dailyData.filter(d => d.change < 0).length;
         const flat = dailyData.length - wins - losses;
         return (
-          <div className="card" style={{ marginBottom: 24 }}>
+          <div className="card mb-6">
             <div className="section-title-row" style={{ margin: "0 0 12px" }}>
               <h2>일별 손익</h2>
               <span className="section-meta">
@@ -592,7 +592,7 @@ export default function PublicDashboardPage() {
           <div className="card" style={{ flex: 1 }}>
             <div className="card-title">포트폴리오 비중</div>
             {portfolio.length > 0 ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div className="flex items-center gap-2">
                 <ResponsiveContainer width="55%" height={200}>
                   <PieChart>
                     <Pie
@@ -612,8 +612,8 @@ export default function PublicDashboardPage() {
                   {portfolio.map((p: any, i: number) => (
                     <div key={p.coin} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11 }}>
                       <div style={{ width: 8, height: 8, borderRadius: 2, flexShrink: 0, background: ["#94a3b8", "#2563eb", "#7c3aed", "#059669", "#d97706", "#dc2626", "#8b5cf6", "#ec4899", "#0891b2"][i % 9] }} />
-                      <span style={{ fontWeight: 600 }}>{p.coin?.replace("KRW-", "")}</span>
-                      <span style={{ color: "var(--text-muted)" }}>{p.weight_pct}%</span>
+                      <span className="font-semibold">{p.coin?.replace("KRW-", "")}</span>
+                      <span className="text-muted-foreground">{p.weight_pct}%</span>
                     </div>
                   ))}
                 </div>
@@ -632,7 +632,7 @@ export default function PublicDashboardPage() {
                     background: c.market_state === "bullish" ? "#ecfdf5" : c.market_state === "bearish" ? "#fef2f2" : "#f8fafc",
                     border: `1px solid ${c.market_state === "bullish" ? "#a7f3d0" : c.market_state === "bearish" ? "#fecaca" : "var(--border)"}`,
                   }}>
-                    <span style={{ fontWeight: 600 }}>{c.coin.replace("KRW-", "")}</span>
+                    <span className="font-semibold">{c.coin.replace("KRW-", "")}</span>
                     {c.rsi && <span style={{ marginLeft: 3, color: "var(--text-muted)", fontSize: 10 }}>RSI {c.rsi}</span>}
                   </div>
                 ))}
@@ -649,7 +649,7 @@ export default function PublicDashboardPage() {
         color: "#ffffff", textDecoration: "none",
         boxShadow: "0 4px 16px rgba(5, 150, 105, 0.15)",
       }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div className="flex justify-between items-center">
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>개발 과정이 궁금하다면?</div>
             <div style={{ fontSize: 12, color: "rgba(255,255,255,0.6)" }}>
@@ -665,9 +665,9 @@ export default function PublicDashboardPage() {
       </a>
 
       {/* 최근 매매 */}
-      <div className="card" style={{ marginBottom: 24 }}>
-        <div className="card-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div className="card mb-6">
+        <div className="card-title flex justify-between items-center">
+          <div className="flex items-center gap-2">
             <span>최근 매매</span>
             {tradeFilter && (
               <span style={{ fontSize: 11, color: "var(--accent-blue)", fontWeight: 600, cursor: "pointer" }}
@@ -712,15 +712,15 @@ export default function PublicDashboardPage() {
                   if (sideFilter) filtered = filtered.filter((t: any) => t.side === sideFilter);
                   return (showAllTrades ? filtered.slice(0, 50) : filtered.slice(0, 5)).map((t: any, i: number) => (
                   <tr key={i}>
-                    <td style={{ fontSize: 11, color: "var(--text-muted)" }}>{formatDateTime(t.timestamp).replace(/\d{4}\. /, "")}</td>
+                    <td className="text-xs text-muted-foreground">{formatDateTime(t.timestamp).replace(/\d{4}\. /, "")}</td>
                     <td style={{ fontWeight: 600, cursor: "pointer", color: tradeFilter === t.coin ? "var(--accent-blue)" : "inherit" }}
                       onClick={() => setTradeFilter(tradeFilter === t.coin ? null : t.coin)}>{t.coin?.replace("KRW-", "")}</td>
                     <td><span className={`badge ${t.side === "buy" ? "badge-green" : "badge-red"}`} style={{ fontSize: 10, cursor: "pointer", opacity: sideFilter && sideFilter !== t.side ? 0.4 : 1 }}
                       onClick={() => setSideFilter(sideFilter === t.side ? null : t.side)}>{t.side === "buy" ? "매수" : "매도"}</span></td>
                     <td style={{ fontSize: 11, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.strategy?.replace(/_/g, " ")}</td>
                     <td style={{ fontSize: 11 }}>{t.price ? Number(t.price).toLocaleString() : "-"}</td>
-                    <td className={t.profit_pct != null ? (t.profit_pct >= 0 ? "positive" : "negative") : ""} style={{ fontWeight: 600 }}>{t.profit_pct != null ? formatPercent(t.profit_pct) : "-"}</td>
-                    <td style={{ fontSize: 11, color: "var(--text-muted)" }}>{t.hold_minutes != null ? `${t.hold_minutes}분` : "-"}</td>
+                    <td className={`font-semibold ${t.profit_pct != null ? (t.profit_pct >= 0 ? "positive" : "negative") : ""}`}>{t.profit_pct != null ? formatPercent(t.profit_pct) : "-"}</td>
+                    <td className="text-xs text-muted-foreground">{t.hold_minutes != null ? `${t.hold_minutes}분` : "-"}</td>
                   </tr>
                 ));
                 })()}
@@ -737,7 +737,7 @@ export default function PublicDashboardPage() {
         color: "#ffffff", textDecoration: "none",
         boxShadow: "0 4px 16px rgba(15, 23, 42, 0.15)",
       }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div className="flex justify-between items-center">
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>100% 오픈소스 · 직접 만든 AI 트레이딩 봇</div>
             <div style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>
@@ -757,8 +757,8 @@ export default function PublicDashboardPage() {
         const actives = strategies.filter((s: any) => s.is_active);
         const others = strategies.filter((s: any) => !s.is_active);
         return (
-          <div className="card" style={{ marginBottom: 24 }}>
-            <div className="card-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="card mb-6">
+            <div className="card-title flex justify-between items-center">
               <span>매매 전략</span>
               {others.length > 0 && (
                 <button onClick={() => setShowAllStrategies(!showAllStrategies)} style={{
@@ -780,7 +780,7 @@ export default function PublicDashboardPage() {
                 border: "1px solid #bfdbfe",
               }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div className="flex items-center gap-2">
                     <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 6px rgba(34,197,94,0.5)" }} />
                     <span style={{ fontWeight: 700, fontSize: 16 }}>{active.display_name}</span>
                     <span style={{ fontSize: 10, color: "#22c55e", fontWeight: 600 }}>운영 중</span>
@@ -794,16 +794,16 @@ export default function PublicDashboardPage() {
                 {activeStat && (
                   <div style={{ display: "flex", gap: 20, fontSize: 13 }}>
                     <div>
-                      <span style={{ color: "var(--text-muted)", fontSize: 11 }}>거래 </span>
-                      <span style={{ fontWeight: 700 }}>{activeStat.trades}건</span>
+                      <span className="text-xs text-muted-foreground">거래 </span>
+                      <span className="font-bold">{activeStat.trades}건</span>
                     </div>
                     <div>
-                      <span style={{ color: "var(--text-muted)", fontSize: 11 }}>승률 </span>
-                      <span style={{ fontWeight: 700 }} className={activeStat.win_rate >= 50 ? "positive" : "negative"}>{activeStat.win_rate}%</span>
+                      <span className="text-xs text-muted-foreground">승률 </span>
+                      <span className={`font-bold ${activeStat.win_rate >= 50 ? "positive" : "negative"}`}>{activeStat.win_rate}%</span>
                     </div>
                     <div>
-                      <span style={{ color: "var(--text-muted)", fontSize: 11 }}>평균 </span>
-                      <span style={{ fontWeight: 700 }} className={activeStat.avg_pct >= 0 ? "positive" : "negative"}>{formatPercent(activeStat.avg_pct)}</span>
+                      <span className="text-xs text-muted-foreground">평균 </span>
+                      <span className={`font-bold ${activeStat.avg_pct >= 0 ? "positive" : "negative"}`}>{formatPercent(activeStat.avg_pct)}</span>
                     </div>
                   </div>
                 )}
@@ -827,10 +827,10 @@ export default function PublicDashboardPage() {
                       {stat ? (
                         <>
                           <span>{stat.trades}건</span>
-                          <span className={stat.win_rate >= 50 ? "positive" : "negative"} style={{ fontWeight: 600 }}>{stat.win_rate}%</span>
+                          <span className={`font-semibold ${stat.win_rate >= 50 ? "positive" : "negative"}`}>{stat.win_rate}%</span>
                         </>
                       ) : (
-                        <span style={{ color: "var(--text-muted)" }}>대기 중</span>
+                        <span className="text-muted-foreground">대기 중</span>
                       )}
                       <span className="badge badge-purple" style={{ fontSize: 8 }}>{s.category}</span>
                     </div>
@@ -845,8 +845,8 @@ export default function PublicDashboardPage() {
 
       {/* 일별 성과 */}
       {dailyReturns.length > 0 && (
-        <div className="card" style={{ marginBottom: 24 }}>
-          <div className="card-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div className="card mb-6">
+          <div className="card-title flex justify-between items-center">
             <span>일별 성과</span>
             {dailyReturns.length > 3 && (
               <button onClick={() => setShowAllDaily(!showAllDaily)} style={{
@@ -873,8 +873,8 @@ export default function PublicDashboardPage() {
                     <td>{d.date}</td>
                     <td>{d.total_trades || "-"}</td>
                     <td className={(d.win_rate || 0) >= 50 ? "positive" : d.win_rate ? "negative" : ""}>{d.win_rate != null ? `${d.win_rate.toFixed(0)}%` : "-"}</td>
-                    <td className={d.daily_pnl_pct >= 0 ? "positive" : "negative"} style={{ fontWeight: 600 }}>{formatPercent(d.daily_pnl_pct)}</td>
-                    <td style={{ color: "var(--text-muted)" }}>{d.risk_reward ? `1:${d.risk_reward}` : "-"}</td>
+                    <td className={`font-semibold ${d.daily_pnl_pct >= 0 ? "positive" : "negative"}`}>{formatPercent(d.daily_pnl_pct)}</td>
+                    <td className="text-muted-foreground">{d.risk_reward ? `1:${d.risk_reward}` : "-"}</td>
                   </tr>
                 ))}
               </tbody>
