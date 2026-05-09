@@ -132,3 +132,50 @@ def test_strategy_info():
 def test_eod_hour_constant():
     """EOD 시간 디폴트 상수 = KST 09:00 (env 미설정 시)."""
     assert EOD_HOUR_KST == 9  # 모듈 디폴트 — env로 오버라이드 가능
+
+
+# === check_sell: roi_table 우회 검증 ===
+
+
+def _strategy_with_roi_table():
+    """roi_table이 설정된 StrategyParams로 전략 인스턴스 생성."""
+    params = StrategyParams(
+        stop_loss_pct=-5.0,
+        trailing_stop_pct=-3.0,
+        roi_table={10: 3.5, 60: 0.8, 240: 1.5},
+    )
+    return VwapOrbBreakout(params)
+
+
+def test_check_sell_does_not_fire_on_small_profit_after_60min():
+    """60분 보유 후 +0.9% — roi_table 옛날 룰이면 매도. 우회 후엔 hold."""
+    s = _strategy_with_roi_table()
+    s._hold_minutes = 70
+    sig = s.check_sell(df=None, current_price=100.9, buy_price=100.0)
+    assert sig.signal_type == "hold", f"roi_table 우회 실패 — {sig.reason}"
+
+
+def test_check_sell_stop_loss_fires():
+    """손절 -5% 도달 시 즉시 매도."""
+    s = _strategy_with_roi_table()
+    sig = s.check_sell(df=None, current_price=94.5, buy_price=100.0)
+    assert sig.signal_type == "sell"
+    assert sig.is_profit_taking is False
+    assert "손절" in sig.reason
+
+
+def test_check_sell_trailing_fires_after_peak_drop():
+    """고점 후 트레일링 -3% 드롭 + 실질 수익 시 매도."""
+    s = _strategy_with_roi_table()
+    s.check_sell(df=None, current_price=110.0, buy_price=100.0)  # 고점 갱신
+    sig = s.check_sell(df=None, current_price=106.0, buy_price=100.0)  # 110→106 = -3.6%
+    assert sig.signal_type == "sell"
+    assert sig.is_profit_taking is True
+    assert "트레일링" in sig.reason
+
+
+def test_check_sell_holds_in_normal_run():
+    """일반 보유 — hold."""
+    s = _strategy_with_roi_table()
+    sig = s.check_sell(df=None, current_price=101.5, buy_price=100.0)
+    assert sig.signal_type == "hold"

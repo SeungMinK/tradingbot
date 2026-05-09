@@ -132,12 +132,38 @@ class VwapOrbBreakout(BaseStrategy):
         )
 
     def check_sell(self, df: pd.DataFrame, current_price: float, buy_price: float) -> Signal:
-        """매도 룰: 손절(OR_low 또는 -3%) + 트레일링 (EOD 청산은 봇이 별도 처리)."""
-        # 공통 트레일링 + 손절 (BaseStrategy 헬퍼)
-        stop_signal = self.check_trailing_stop(current_price, buy_price)
-        if stop_signal:
-            return stop_signal
-        return Signal("hold", 0.0, "보유 유지 (EOD 청산 대기 또는 트레일링)")
+        """매도 룰: 손절 + 트레일링만. EOD 청산은 봇이 별도 처리.
+
+        BaseStrategy.check_trailing_stop을 호출하지 않음 — 그 안의 roi_table
+        시간 기반 익절(+0.8%/60분 등)이 ORB 단타의 큰 추세를 너무 일찍 자름.
+        EOD 청산(KST 09:00)이 보유 시간 캡 역할을 이미 하므로 시간 ROI 룰 불필요.
+        """
+        if self._highest_price is None or current_price > self._highest_price:
+            self._highest_price = current_price
+
+        pnl_pct = (current_price - buy_price) / buy_price * 100
+        net_pnl = self._net_pnl_pct(pnl_pct)
+
+        if pnl_pct <= self.params.stop_loss_pct:
+            return Signal(
+                "sell",
+                1.0,
+                f"손절 {pnl_pct:.2f}%",
+                trigger_value=round(pnl_pct, 2),
+                is_profit_taking=False,
+            )
+
+        drop_pct = (current_price - self._highest_price) / self._highest_price * 100
+        if drop_pct <= self.params.trailing_stop_pct and net_pnl > 0:
+            return Signal(
+                "sell",
+                0.8,
+                f"트레일링 (실질 {net_pnl:+.2f}%)",
+                trigger_value=round(drop_pct, 2),
+                is_profit_taking=True,
+            )
+
+        return Signal("hold", 0.0, f"보유 유지 (실질 {net_pnl:+.2f}%, EOD 청산 대기)")
 
 
 def is_eod_window(now: datetime | None = None, window_minutes: int = 5) -> bool:
