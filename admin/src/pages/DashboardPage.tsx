@@ -542,58 +542,60 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* #297-2: KIS 봇 틱별 매수 판단 결과 (사용자 가시성) */}
+      {/* #341 KIS 봇 매수 판단 표 — Tailwind 변환 */}
       {(tab === "all" || tab === "kis") && kisEvals.length > 0 && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <div className="card-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div className="card mt-4">
+          <div className="card-title flex justify-between items-center">
             <span>🔍 봇 매수 판단 (최근 20건)</span>
-            <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 400 }}>
+            <span className="text-xs text-muted-foreground font-normal">
               30초마다 평가 — 매수 신호 충족하면 ✅
             </span>
           </div>
-          <div className="table-container" style={{ marginTop: 8 }}>
-            <table style={{ width: "100%", fontSize: 12 }}>
+          <div className="table-container mt-2">
+            <table className="w-full text-xs">
               <thead>
                 <tr>
-                  <th style={{ textAlign: "left", padding: 4 }}>시간</th>
-                  <th style={{ textAlign: "left", padding: 4 }}>종목</th>
-                  <th style={{ textAlign: "right", padding: 4 }}>가격</th>
-                  <th style={{ textAlign: "right", padding: 4 }}>RSI</th>
-                  <th style={{ textAlign: "right", padding: 4 }}>MA20</th>
-                  <th style={{ textAlign: "right", padding: 4 }}>MA60</th>
-                  <th style={{ textAlign: "center", padding: 4 }}>매수?</th>
-                  <th style={{ textAlign: "left", padding: 4 }}>사유 / 신뢰도</th>
+                  <th className="text-left p-1">시간</th>
+                  <th className="text-left p-1">종목</th>
+                  <th className="text-right p-1">가격</th>
+                  <th className="text-right p-1">RSI</th>
+                  <th className="text-right p-1">MA20</th>
+                  <th className="text-right p-1">MA60</th>
+                  <th className="text-center p-1">매수?</th>
+                  <th className="text-left p-1">사유 / 신뢰도</th>
                 </tr>
               </thead>
               <tbody>
                 {kisEvals.slice(0, 20).map((e: any) => (
                   <tr key={e.id}>
-                    <td style={{ padding: 4, fontSize: 10, color: "var(--text-muted)" }}>
+                    <td className="p-1 text-[10px] text-muted-foreground">
                       {(e.evaluated_at || "").slice(11, 19)}
                     </td>
-                    <td style={{ padding: 4, fontWeight: 600 }}>{e.ticker}</td>
-                    <td style={{ padding: 4, textAlign: "right" }}>
+                    <td className="p-1 font-semibold">{e.ticker}</td>
+                    <td className="p-1 text-right">
                       {e.price != null ? `$${Number(e.price).toFixed(2)}` : "-"}
                     </td>
-                    <td style={{
-                      padding: 4, textAlign: "right",
-                      color: e.rsi != null && e.rsi <= 35 ? "#10b981" : e.rsi != null && e.rsi >= 70 ? "#ef4444" : "var(--text-muted)",
-                      fontWeight: e.rsi != null && (e.rsi <= 35 || e.rsi >= 70) ? 700 : 400,
-                    }}>
+                    <td className={cn(
+                      "p-1 text-right",
+                      e.rsi != null && e.rsi <= 35 && "text-success font-bold",
+                      e.rsi != null && e.rsi >= 70 && "text-destructive font-bold",
+                      e.rsi != null && e.rsi > 35 && e.rsi < 70 && "text-muted-foreground",
+                      e.rsi == null && "text-muted-foreground",
+                    )}>
                       {e.rsi != null ? Number(e.rsi).toFixed(1) : "-"}
                     </td>
-                    <td style={{ padding: 4, textAlign: "right", color: "var(--text-muted)" }}>
+                    <td className="p-1 text-right text-muted-foreground">
                       {e.ma20 != null ? Number(e.ma20).toFixed(2) : "-"}
                     </td>
-                    <td style={{ padding: 4, textAlign: "right", color: "var(--text-muted)" }}>
+                    <td className="p-1 text-right text-muted-foreground">
                       {e.ma60 != null ? Number(e.ma60).toFixed(2) : "-"}
                     </td>
-                    <td style={{ padding: 4, textAlign: "center" }}>
+                    <td className="p-1 text-center">
                       {e.should_buy
-                        ? <span style={{ color: "#10b981", fontWeight: 700 }}>✅</span>
-                        : <span style={{ color: "var(--text-muted)" }}>-</span>}
+                        ? <span className="text-success font-bold">✅</span>
+                        : <span className="text-muted-foreground">-</span>}
                     </td>
-                    <td style={{ padding: 4, fontSize: 10, color: "var(--text-secondary)" }}>
+                    <td className="p-1 text-[10px] text-muted-foreground">
                       {e.reason}
                       {e.confidence > 0 ? ` (conf ${Number(e.confidence).toFixed(2)})` : ""}
                     </td>
@@ -602,7 +604,7 @@ export default function DashboardPage() {
               </tbody>
             </table>
           </div>
-          <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-muted)" }}>
+          <div className="mt-1.5 text-xs text-muted-foreground">
             💡 RSI 초록(≤35) = 매수 임계 충족. 4중 조건 모두 만족해야 ✅. 미충족 사유는 "사유" 컬럼에 표시.
           </div>
         </div>
