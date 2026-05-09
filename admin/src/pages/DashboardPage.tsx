@@ -9,6 +9,7 @@ import type { MarketSnapshot } from "../types/market";
 import type { Trade } from "../types/trades";
 import StatCard from "../components/StatCard";
 import BotStatusBanner from "../components/BotStatusBanner";
+import PnLHero from "../components/PnLHero";
 import { formatKRW, formatPercent, formatDateTime } from "../utils/format";
 import { getMarketStateKR } from "../utils/indicatorDescriptions";
 
@@ -147,34 +148,40 @@ export default function DashboardPage() {
         const totalPnl = totalDeposits !== null ? totalAsset - totalDeposits : null;
         const pnlPct = totalDeposits && totalDeposits > 0 && totalPnl !== null ? (totalPnl / totalDeposits) * 100 : null;
         return (
-          <div className="kpi-grid">
-            <StatCard
-              label="총 보유 자산 (코인 봇)"
-              value={balance ? formatKRW(totalAsset) : "-"}
-              sub={`KRW ${formatKRW(balance?.krw_balance || 0)} + 코인 ${formatKRW(totalValue)}`}
+          <>
+            {/* #335 PnL Hero — 코인 손익 큰 강조 */}
+            <PnLHero
+              totalAsset={balance ? totalAsset : null}
+              totalPnl={totalPnl}
+              pnlPct={pnlPct}
+              totalDeposits={totalDeposits}
+              positionCount={pos.length}
             />
-            <StatCard
-              label="총 손익 (코인)"
-              value={totalPnl !== null && pnlPct !== null
-                ? `${formatKRW(totalPnl)} (${formatPercent(pnlPct)})`
-                : "기준 미설정"}
-              valueClass={totalPnl !== null ? (totalPnl >= 0 ? "positive" : "negative") : ""}
-              sub={totalDeposits !== null
-                ? `누적 입금 ₩${totalDeposits.toLocaleString()} 기준`
-                : "입금 이력 없음"}
-            />
-            <StatCard
-              label="매수 금액"
-              value={formatKRW(totalCost)}
-              sub={pos.length > 0 ? `${pos.length}종목 보유` : "보유 없음"}
-            />
-            <StatCard
-              label="평가 금액"
-              value={formatKRW(totalValue)}
-              valueClass={totalValue > totalCost ? "positive" : totalValue < totalCost ? "negative" : ""}
-              sub={totalCost > 0 ? `${formatPercent((totalValue - totalCost) / totalCost * 100)} 수익률` : "포지션 없음"}
-            />
-          </div>
+            {/* 기존 KPI 그리드 — 매수/평가 정보 */}
+            <div className="kpi-grid mt-4">
+              <StatCard
+                label="매수 금액"
+                value={formatKRW(totalCost)}
+                sub={pos.length > 0 ? `${pos.length}종목 보유` : "보유 없음"}
+              />
+              <StatCard
+                label="평가 금액"
+                value={formatKRW(totalValue)}
+                valueClass={totalValue > totalCost ? "positive" : totalValue < totalCost ? "negative" : ""}
+                sub={totalCost > 0 ? `${formatPercent((totalValue - totalCost) / totalCost * 100)} 수익률` : "포지션 없음"}
+              />
+              <StatCard
+                label="현금 (KRW)"
+                value={formatKRW(balance?.krw_balance || 0)}
+                sub="다음 매수 가용"
+              />
+              <StatCard
+                label="총 보유 자산"
+                value={balance ? formatKRW(totalAsset) : "-"}
+                sub="KRW + 코인 평가"
+              />
+            </div>
+          </>
         );
       })()}
 
