@@ -10,6 +10,7 @@ import type { Trade } from "../types/trades";
 import StatCard from "../components/StatCard";
 import BotStatusBanner from "../components/BotStatusBanner";
 import PnLHero from "../components/PnLHero";
+import TradeRow from "../components/TradeRow";
 import { formatKRW, formatPercent, formatDateTime } from "../utils/format";
 import { getMarketStateKR } from "../utils/indicatorDescriptions";
 
@@ -276,51 +277,10 @@ export default function DashboardPage() {
             <Link to="/trades" style={{ fontSize: 12 }}>전체 보기</Link>
           </div>
           {recentTrades.length > 0 ? (
-            <div className="table-container">
-              <table>
-                <thead>
-                  <tr>
-                    <th>시간(KST)</th>
-                    <th>종목</th>
-                    <th>방향</th>
-                    <th>금액</th>
-                    <th>사유</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentTrades.map((t: any) => {
-                    const isKis = t.market === "kis_us" || t.market === "kis_kr";
-                    const marketIcon = t.market === "kis_us" ? "🇺🇸" : t.market === "kis_kr" ? "🇰🇷" : "🪙";
-                    return (
-                      <tr key={t.id}>
-                        <td style={{ fontSize: 10 }}>{formatDateTime(t.timestamp).replace(/\d{4}\. /, "").replace(/:(\d{2})$/, "")}</td>
-                        <td style={{ fontSize: 12 }}>
-                          <span style={{ marginRight: 4, fontSize: 10 }}>{marketIcon}</span>
-                          {t.coin?.replace("KRW-", "")}
-                        </td>
-                        <td>
-                          <span className={`badge ${t.side === "buy" ? "badge-green" : "badge-red"}`} style={{ fontSize: 10 }}>
-                            {t.side === "buy" ? "매수" : "매도"}
-                          </span>
-                        </td>
-                        <td style={{ fontSize: 11 }}>
-                          {isKis && t.price
-                            ? `$${Number(t.price).toFixed(2)}`
-                            : formatKRW(t.total_krw)}
-                          {t.profit_pct != null && (
-                            <span className={t.profit_pct > 0 ? "positive" : "negative"} style={{ marginLeft: 4, fontSize: 10 }}>
-                              ({t.profit_pct > 0 ? "+" : ""}{t.profit_pct.toFixed(2)}%)
-                            </span>
-                          )}
-                        </td>
-                        <td style={{ fontSize: 10, color: "var(--text-muted)", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {t.trigger_reason || "-"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className="flex flex-col gap-1">
+              {recentTrades.slice(0, 10).map((t: any) => (
+                <TradeRow key={t.id} trade={t} />
+              ))}
             </div>
           ) : (
             <div className="empty-state">매매 내역 없음</div>
