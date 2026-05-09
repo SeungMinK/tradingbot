@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import { getAllConfig, updateConfig } from "../api/config";
 import type { ConfigItem } from "../api/config";
 import client from "../api/client";
+import { cn } from "@/lib/utils";
 
 const CATEGORY_LABELS: Record<string, string> = {
   coin: "코인 선별",
@@ -99,45 +100,31 @@ export default function ConfigPage() {
 
       {CATEGORY_ORDER.filter((cat) => grouped[cat]).map((category) => (
         <div key={category}>
-        <div className="card" style={{ marginBottom: category === "coin" ? 0 : 20 }}>
+        <div className={cn("card", category === "coin" ? "mb-0" : "mb-5")}>
           <div className="card-title">{CATEGORY_LABELS[category] || category}</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className="flex flex-col gap-4">
             {grouped[category].map((cfg) => (
               <div
                 key={cfg.key}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  padding: "12px 0",
-                  borderBottom: "1px solid var(--border)",
-                }}
+                className="flex justify-between items-center py-3 border-b border-border last:border-b-0"
               >
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>{cfg.display_name}</div>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{cfg.description}</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                <div className="flex-1">
+                  <div className="font-semibold mb-1">{cfg.display_name}</div>
+                  <div className="text-xs text-muted-foreground">{cfg.description}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
                     key: <code>{cfg.key}</code>
                   </div>
                 </div>
-                <div style={{ marginLeft: 24, minWidth: 140, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8 }}>
+                <div className="ml-6 min-w-[140px] flex justify-end items-center gap-2">
                   {cfg.value_type === "bool" ? (
                     <button
                       onClick={() => handleToggle(cfg.key, cfg.value)}
                       disabled={saving === cfg.key}
-                      style={{
-                        padding: "6px 16px",
-                        borderRadius: 20,
-                        border: "none",
-                        cursor: "pointer",
-                        fontSize: 13,
-                        fontWeight: 600,
-                        minWidth: 60,
-                        background: cfg.value === "true" ? "#22c55e" : "#4b5563",
-                        color: "#fff",
-                        transition: "all 0.2s",
-                        opacity: saving === cfg.key ? 0.6 : 1,
-                      }}
+                      className={cn(
+                        "px-4 py-1.5 rounded-full border-none cursor-pointer text-sm font-semibold min-w-[60px] text-white transition-all",
+                        cfg.value === "true" ? "bg-success" : "bg-muted-foreground",
+                        saving === cfg.key && "opacity-60",
+                      )}
                     >
                       {cfg.value === "true" ? "ON" : "OFF"}
                     </button>
@@ -148,30 +135,18 @@ export default function ConfigPage() {
                         step={cfg.value_type === "float" ? "0.1" : "1"}
                         value={editValues[cfg.key] ?? ""}
                         onChange={(e) => setEditValues((prev) => ({ ...prev, [cfg.key]: e.target.value }))}
-                        style={{
-                          width: 80,
-                          padding: "6px 8px",
-                          borderRadius: 6,
-                          border: "1px solid var(--border)",
-                          background: "var(--bg-secondary)",
-                          color: "var(--text-primary)",
-                          fontSize: 13,
-                          textAlign: "right",
-                        }}
+                        className="w-20 px-2 py-1.5 rounded-md border border-border bg-card text-foreground text-sm text-right"
                       />
                       <button
                         onClick={() => handleSave(cfg.key)}
                         disabled={saving === cfg.key || editValues[cfg.key] === cfg.value}
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: 6,
-                          border: "none",
-                          cursor: editValues[cfg.key] !== cfg.value ? "pointer" : "default",
-                          fontSize: 12,
-                          background: editValues[cfg.key] !== cfg.value ? "#4a9eff" : "#2a2d3e",
-                          color: editValues[cfg.key] !== cfg.value ? "#fff" : "#666",
-                          opacity: saving === cfg.key ? 0.6 : 1,
-                        }}
+                        className={cn(
+                          "px-3 py-1.5 rounded-md border-none text-xs",
+                          editValues[cfg.key] !== cfg.value
+                            ? "bg-primary text-primary-foreground cursor-pointer"
+                            : "bg-muted text-muted-foreground cursor-default",
+                          saving === cfg.key && "opacity-60",
+                        )}
                       >
                         저장
                       </button>
