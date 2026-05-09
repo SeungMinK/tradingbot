@@ -610,16 +610,16 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* #297: KIS 미국주식 종목 풀 관리 */}
+      {/* #342 KIS 종목 풀 — Tailwind 변환 */}
       {(tab === "all" || tab === "kis") && kisSymbols.length > 0 && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <div className="card-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div className="card mt-4">
+          <div className="card-title flex justify-between items-center">
             <span>🇺🇸 KIS 미국주식 종목 풀</span>
-            <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 400 }}>
+            <span className="text-xs text-muted-foreground font-normal">
               활성 {kisSymbols.filter((s: any) => s.enabled).length}/{kisSymbols.length}종목 — 봇 5분마다 풀 재로딩 (재시작 불요)
             </span>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 6, marginTop: 8 }}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1.5 mt-2">
             {kisSymbols.map((s: any) => {
               const supported = s.minute_supported !== false;
               const disabled = !supported;
@@ -627,19 +627,14 @@ export default function DashboardPage() {
                 <label
                   key={s.ticker}
                   title={disabled ? "KIS 분봉 미지원 — 활성화해도 봇이 평가 못함" : ""}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 8,
-                    padding: "6px 10px", borderRadius: 6,
-                    background: disabled
-                      ? "var(--bg-secondary)"
-                      : s.enabled ? "rgba(74,158,255,0.12)" : "var(--bg-secondary)",
-                    border: disabled
-                      ? "1px dashed var(--border)"
-                      : s.enabled ? "1px solid #4a9eff" : "1px solid var(--border)",
-                    cursor: disabled ? "not-allowed" : "pointer",
-                    fontSize: 12,
-                    opacity: disabled ? 0.4 : 1,
-                  }}
+                  className={cn(
+                    "flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs transition-colors",
+                    disabled
+                      ? "bg-muted border border-dashed border-border opacity-40 cursor-not-allowed"
+                      : s.enabled
+                        ? "bg-primary/10 border border-primary cursor-pointer"
+                        : "bg-muted border border-border cursor-pointer hover:bg-accent"
+                  )}
                 >
                   <input
                     type="checkbox"
@@ -651,13 +646,13 @@ export default function DashboardPage() {
                       fetchAll();
                     }}
                   />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600 }}>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold flex items-center gap-1 flex-wrap">
                       {s.ticker}
-                      {s.is_integer_only ? <span style={{ fontSize: 9, marginLeft: 4, color: "#f59e0b" }}>1주</span> : null}
-                      {disabled ? <span style={{ fontSize: 9, marginLeft: 4, color: "#ef4444" }}>분봉 미지원</span> : null}
+                      {s.is_integer_only && <span className="text-[9px] text-warning">1주</span>}
+                      {disabled && <span className="text-[9px] text-destructive">분봉 미지원</span>}
                     </div>
-                    <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                    <div className="text-[10px] text-muted-foreground truncate">
                       {s.display_name}{s.note ? ` — ${s.note}` : ""}
                     </div>
                   </div>
@@ -665,10 +660,10 @@ export default function DashboardPage() {
               );
             })}
           </div>
-          <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
+          <div className="mt-2 text-xs text-muted-foreground">
             💡 체크하면 봇 모니터링 풀에 추가. 종목당 한도 100% (자금 부족 시 신뢰도 높은 것 우선).
             <br />
-            ⚠️ <span style={{ color: "#ef4444" }}>분봉 미지원</span> 종목은 KIS API 제약으로 봇이 평가 불가 (활성화 X).
+            ⚠️ <span className="text-destructive">분봉 미지원</span> 종목은 KIS API 제약으로 봇이 평가 불가 (활성화 X).
           </div>
         </div>
       )}
