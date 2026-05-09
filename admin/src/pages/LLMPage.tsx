@@ -95,10 +95,10 @@ export default function LLMPage() {
       </div>
 
       {/* 분석 이력 */}
-      <div className="card" style={{ marginBottom: 20 }}>
+      <div className="card mb-5">
         <div className="card-title">분석 이력</div>
         {decisions.length > 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div className="flex flex-col gap-3">
             {decisions.map((d) => {
               const parts = (d.output_reasoning || "").split("\n\n");
               const summary = parts[0] || "";
@@ -107,36 +107,36 @@ export default function LLMPage() {
               try { beforeAfter = d.input_news_summary ? JSON.parse(d.input_news_summary) : null; } catch { /* */ }
 
               return (
-                <div key={d.id} style={{ padding: 14, borderRadius: 8, background: "var(--bg-secondary)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <span style={{ fontSize: 12, color: "var(--text-muted)" }}>#{d.id}</span>
+                <div key={d.id} className="p-3.5 rounded-lg bg-muted">
+                  <div className="flex justify-between items-center mb-2">
+                    <div className="flex gap-1.5 items-center">
+                      <span className="text-xs text-muted-foreground">#{d.id}</span>
                       <span className={`badge ${d.output_market_state === "bullish" ? "badge-green" : d.output_market_state === "bearish" ? "badge-red" : "badge-yellow"}`}>
                         {getMarketStateKR(d.output_market_state || "")}
                       </span>
-                      <span className="badge badge-blue" style={{ fontSize: 10 }}>
+                      <span className="badge badge-blue text-[10px]">
                         공격성 {((d.output_aggression || 0) * 100).toFixed(0)}%
                       </span>
                       {d.evaluation_was_good !== null && (
-                        <span className={`badge ${d.evaluation_was_good ? "badge-green" : "badge-red"}`} style={{ fontSize: 10 }}>
+                        <span className={`badge text-[10px] ${d.evaluation_was_good ? "badge-green" : "badge-red"}`}>
                           {d.evaluation_was_good ? "good" : "bad"}
                         </span>
                       )}
                     </div>
-                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                    <span className="text-xs text-muted-foreground">
                       ${d.cost_usd?.toFixed(4) || "0"} · {formatDateTime(d.timestamp)}
                     </span>
                   </div>
 
-                  <div style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 6 }}>{summary}</div>
-                  {reasoning && <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: 6 }}>{reasoning}</div>}
+                  <div className="text-sm leading-relaxed mb-1.5">{summary}</div>
+                  {reasoning && <div className="text-xs text-muted-foreground leading-relaxed mb-1.5">{reasoning}</div>}
 
                   {beforeAfter && (
-                    <div style={{ fontSize: 11, color: "var(--text-muted)", borderTop: "1px solid var(--border)", paddingTop: 6 }}>
-                      <span style={{ fontWeight: 600 }}>변경: </span>
+                    <div className="text-xs text-muted-foreground border-t border-border pt-1.5">
+                      <span className="font-semibold">변경: </span>
                       {Object.entries(beforeAfter.after || {}).map(([k, v]) => (
-                        <span key={k} style={{ marginRight: 8 }}>
-                          {k}: <span style={{ textDecoration: "line-through" }}>{(beforeAfter.before || {})[k]}</span> → <span style={{ color: "#4a9eff" }}>{String(v)}</span>
+                        <span key={k} className="mr-2">
+                          {k}: <span className="line-through">{(beforeAfter.before || {})[k]}</span> → <span className="text-primary">{String(v)}</span>
                         </span>
                       ))}
                       {beforeAfter.strategy && <span>전략: {beforeAfter.strategy}</span>}
@@ -168,15 +168,15 @@ export default function LLMPage() {
               </thead>
               <tbody>
                 {prompts.map((p) => (
-                  <tr key={p.id} style={{ background: p.is_active ? "rgba(74, 158, 255, 0.05)" : "transparent" }}>
-                    <td style={{ fontWeight: 600 }}>{p.version}</td>
+                  <tr key={p.id} className={p.is_active ? "bg-primary/5" : ""}>
+                    <td className="font-semibold">{p.version}</td>
                     <td>
                       <span className={`badge ${p.is_active ? "badge-green" : "badge-red"}`}>
                         {p.is_active ? "활성" : "비활성"}
                       </span>
                     </td>
-                    <td style={{ fontSize: 12 }}>{formatDateTime(p.created_at)}</td>
-                    <td style={{ fontSize: 12, color: "var(--text-muted)" }}>{p.description}</td>
+                    <td className="text-xs">{formatDateTime(p.created_at)}</td>
+                    <td className="text-xs text-muted-foreground">{p.description}</td>
                     <td>
                       <button
                         onClick={async () => {
