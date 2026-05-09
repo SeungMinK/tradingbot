@@ -452,91 +452,104 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* === KIS 섹션: 자본 + 단타모드 표시 === */}
+      {/* === KIS 자본 카드 (#343 Tailwind) === */}
       {(tab === "all" || tab === "kis") && marketCapital?.markets?.length > 0 && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <div className="card-title" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div className="card mt-4">
+          <div className="card-title flex justify-between items-center">
             <span>KIS 시장별 자본</span>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={async () => {
-                const a = prompt("입금 금액 (KRW). 50:50 자동 분배.");
-                if (!a) return;
-                const note = prompt("메모 (선택)") || "";
-                await client.post("/market-capital/deposit", { amount: Number(a), split: true, note });
-                fetchAll();
-              }} style={{ padding: "6px 12px", fontSize: 12, borderRadius: 6, border: "1px solid var(--border)", cursor: "pointer", background: "#fff" }}>
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  const a = prompt("입금 금액 (KRW). 50:50 자동 분배.");
+                  if (!a) return;
+                  const note = prompt("메모 (선택)") || "";
+                  await client.post("/market-capital/deposit", { amount: Number(a), split: true, note });
+                  fetchAll();
+                }}
+                className="px-3 py-1.5 text-xs rounded-md border border-border bg-background hover:bg-accent transition-colors"
+              >
                 💰 입금 (50:50)
               </button>
-              <button onClick={async () => {
-                const from = prompt("이동 출처 (kis_kr | kis_us)");
-                if (!from) return;
-                const to = prompt("이동 대상 (kis_kr | kis_us)");
-                if (!to) return;
-                const a = prompt("금액 (KRW)");
-                if (!a) return;
-                const note = prompt("메모 (선택)") || "";
-                await client.post("/market-capital/transfer", { from_market: from, to_market: to, amount: Number(a), note });
-                fetchAll();
-              }} style={{ padding: "6px 12px", fontSize: 12, borderRadius: 6, border: "1px solid var(--border)", cursor: "pointer", background: "#fff" }}>
+              <button
+                onClick={async () => {
+                  const from = prompt("이동 출처 (kis_kr | kis_us)");
+                  if (!from) return;
+                  const to = prompt("이동 대상 (kis_kr | kis_us)");
+                  if (!to) return;
+                  const a = prompt("금액 (KRW)");
+                  if (!a) return;
+                  const note = prompt("메모 (선택)") || "";
+                  await client.post("/market-capital/transfer", { from_market: from, to_market: to, amount: Number(a), note });
+                  fetchAll();
+                }}
+                className="px-3 py-1.5 text-xs rounded-md border border-border bg-background hover:bg-accent transition-colors"
+              >
                 ↔️ 이동
               </button>
-              <button onClick={async () => {
-                const market = prompt("출금 시장 (kis_kr | kis_us)");
-                if (!market) return;
-                const a = prompt("금액 (KRW)");
-                if (!a) return;
-                const note = prompt("메모 (선택)") || "";
-                await client.post("/market-capital/withdraw", { market, amount: Number(a), note });
-                fetchAll();
-              }} style={{ padding: "6px 12px", fontSize: 12, borderRadius: 6, border: "1px solid var(--border)", cursor: "pointer", background: "#fff" }}>
+              <button
+                onClick={async () => {
+                  const market = prompt("출금 시장 (kis_kr | kis_us)");
+                  if (!market) return;
+                  const a = prompt("금액 (KRW)");
+                  if (!a) return;
+                  const note = prompt("메모 (선택)") || "";
+                  await client.post("/market-capital/withdraw", { market, amount: Number(a), note });
+                  fetchAll();
+                }}
+                className="px-3 py-1.5 text-xs rounded-md border border-border bg-background hover:bg-accent transition-colors"
+              >
                 💸 출금
               </button>
             </div>
           </div>
-          <table style={{ width: "100%", fontSize: 13 }}>
+          <table className="w-full text-sm">
             <thead>
               <tr>
-                <th style={{ textAlign: "left", padding: 6 }}>시장</th>
-                <th style={{ textAlign: "right", padding: 6 }}>실 잔고 (API)</th>
-                <th style={{ textAlign: "right", padding: 6 }}>실현 손익</th>
-                <th style={{ textAlign: "right", padding: 6 }}>보유 원가</th>
-                <th style={{ textAlign: "left", padding: 6 }}>봇 상태</th>
+                <th className="text-left p-1.5">시장</th>
+                <th className="text-right p-1.5">실 잔고 (API)</th>
+                <th className="text-right p-1.5">실현 손익</th>
+                <th className="text-right p-1.5">보유 원가</th>
+                <th className="text-left p-1.5">봇 상태</th>
               </tr>
             </thead>
             <tbody>
               {marketCapital.markets.map((m: any) => {
-                const tradingEnabled = m.market === "kis_us"; // TODO: market-universe API에서 실제 토글 가져오기
+                const tradingEnabled = m.market === "kis_us";
                 return (
-                  <tr key={m.market} style={{ opacity: tradingEnabled ? 1 : 0.6 }}>
-                    <td style={{ padding: 6, fontWeight: 600 }}>
+                  <tr key={m.market} className={cn(!tradingEnabled && "opacity-60")}>
+                    <td className="p-1.5 font-semibold">
                       {m.market === "kis_kr" ? "🇰🇷 한국주식" : "🇺🇸 미국주식"}
                     </td>
-                    <td style={{ textAlign: "right", padding: 6, fontWeight: 700, color: "var(--accent)" }}>
+                    <td className="text-right p-1.5 font-bold text-primary">
                       {m.live?.available != null
                         ? `${Number(m.live.available).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${m.live.currency || ""}`
-                        : <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>조회불가</span>}
+                        : <span className="text-muted-foreground font-normal">조회불가</span>}
                     </td>
-                    <td style={{ textAlign: "right", padding: 6 }} className={m.realized_pnl > 0 ? "positive" : m.realized_pnl < 0 ? "negative" : ""}>
+                    <td className={cn(
+                      "text-right p-1.5",
+                      m.realized_pnl > 0 && "text-success",
+                      m.realized_pnl < 0 && "text-destructive",
+                    )}>
                       {m.realized_pnl !== 0
                         ? `${m.realized_pnl > 0 ? "+" : ""}${Number(m.realized_pnl).toLocaleString()}원`
-                        : <span style={{ color: "var(--text-muted)" }}>-</span>}
+                        : <span className="text-muted-foreground">-</span>}
                     </td>
-                    <td style={{ textAlign: "right", padding: 6 }}>
+                    <td className="text-right p-1.5">
                       {m.held_cost > 0
                         ? `${Number(m.held_cost).toLocaleString()}원`
-                        : <span style={{ color: "var(--text-muted)" }}>-</span>}
+                        : <span className="text-muted-foreground">-</span>}
                     </td>
-                    <td style={{ padding: 6, fontSize: 11 }}>
+                    <td className="p-1.5 text-xs">
                       {tradingEnabled
-                        ? <span style={{ color: "#10b981" }}>✅ 봇 거래 활성</span>
-                        : <span style={{ color: "var(--text-muted)" }}>⏸️ 거래 OFF</span>}
+                        ? <span className="text-success">✅ 봇 거래 활성</span>
+                        : <span className="text-muted-foreground">⏸️ 거래 OFF</span>}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-          <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
+          <div className="mt-2 text-xs text-muted-foreground">
             💡 <strong>실 잔고 (API)</strong>가 봇이 매수에 쓰는 예산. 입출금 이력은 위 버튼으로 기록.
           </div>
         </div>
