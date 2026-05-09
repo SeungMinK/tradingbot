@@ -402,47 +402,46 @@ export default function DashboardPage() {
       {/* 코인 섹션 끝 */}
       </>}
 
-      {/* === KIS/공통: 시장별 모니터링 카드 (탭별 필터) === */}
+      {/* === 시장별 모니터링 카드 (#340 Tailwind) === */}
       {marketUniverse?.markets?.length > 0 && (
-        <div className="card" style={{ marginTop: 16 }}>
+        <div className="card mt-4">
           <div className="card-title">
             {tab === "coin" ? "코인 전략" : tab === "kis" ? "KIS 주식 전략" : "시장별 모니터링 + 전략"}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 12 }}>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {marketUniverse.markets.filter((m: any) => {
               if (tab === "coin") return m.market === "upbit";
               if (tab === "kis") return m.market === "kis_kr" || m.market === "kis_us";
               return true;
             }).map((m: any) => (
-              <div key={m.market} style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>{m.display_name}</div>
-                <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>
-                  <strong>전략:</strong> {m.strategy.display_name}
+              <div key={m.market} className="border border-border rounded-lg p-3.5 bg-card">
+                <div className="text-sm font-bold mb-2">{m.display_name}</div>
+                <div className="text-xs text-muted-foreground mb-1.5">
+                  <strong className="text-foreground">전략:</strong> {m.strategy.display_name}
                 </div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10, lineHeight: 1.5 }}>
+                <div className="text-xs text-muted-foreground mb-2.5 leading-relaxed">
                   {m.rules.description}
                   <br />
-                  <span style={{ color: m.rules.type === "strategy_module" ? "#10b981" : "#f59e0b" }}>
+                  <span className={cn(
+                    m.rules.type === "strategy_module" ? "text-success" : "text-warning"
+                  )}>
                     {m.rules.type === "strategy_module" ? "✅ 자동 매수+매도" : "⚠️ 매도만 자동 (매수 수동)"}
                   </span>
                 </div>
-                <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 6 }}>
-                  <strong>모니터링 ({m.symbol_count}종목):</strong>
+                <div className="text-xs text-muted-foreground mb-1.5">
+                  <strong className="text-foreground">모니터링 ({m.symbol_count}종목):</strong>
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                <div className="flex flex-wrap gap-1">
                   {m.symbols.map((s: string) => (
-                    <span key={s} style={{
-                      fontSize: 10, padding: "2px 6px", borderRadius: 4,
-                      background: "#f1f5f9", border: "1px solid var(--border)",
-                    }}>
+                    <span key={s} className="text-[10px] px-1.5 py-0.5 rounded bg-muted border border-border">
                       {s.replace("KRW-", "")}
                     </span>
                   ))}
                 </div>
                 {m.strategy.params_json && (
-                  <details style={{ marginTop: 8 }}>
-                    <summary style={{ fontSize: 11, cursor: "pointer", color: "var(--text-muted)" }}>전략 파라미터</summary>
-                    <pre style={{ fontSize: 10, background: "#f8fafc", padding: 6, borderRadius: 4, marginTop: 4, overflow: "auto" }}>
+                  <details className="mt-2">
+                    <summary className="text-xs text-muted-foreground cursor-pointer">전략 파라미터</summary>
+                    <pre className="text-[10px] bg-muted p-1.5 rounded mt-1 overflow-auto">
                       {JSON.stringify(JSON.parse(m.strategy.params_json), null, 2)}
                     </pre>
                   </details>
