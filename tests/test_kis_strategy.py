@@ -471,7 +471,9 @@ def test_evaluate_sell_with_orb_stop_loss_price():
         stop_loss_price=99.0,  # OR_low
     )
     assert sig.should_sell is True
-    assert "OR_low" in sig.reason
+    # 메시지 형식 무관, 절대가 손절 발동 확인 (#364 메시지 일반화: ORB/Bar-1 공통)
+    assert "$99.00" in sig.reason
+    assert sig.is_profit_taking is False
     assert sig.is_profit_taking is False
 
 
@@ -517,3 +519,140 @@ def test_buy_queue_sorts_by_confidence_desc():
     assert candidates[0][0] == "NVDA"  # 0.9 (1순위)
     assert candidates[1][0] == "AMD"   # 0.7
     assert candidates[2][0] == "AAPL"  # 0.4
+
+
+# ===================================================================
+# #364 Pure Zarattini Bar-1 directional 테스트
+# ===================================================================
+
+
+def _bar1_df(o: float, h: float, l: float, c: float) -> pd.DataFrame:
+    """단일 5분봉 — bar1만 평가하면 되니 1봉만."""
+    return pd.DataFrame({
+        "open": [o], "high": [h], "low": [l], "close": [c], "volume": [1_000_000],
+    })
+
+
+def test_zarattini_bar1_bullish_long_signal():
+    """첫 봉 양봉 → LONG 시그널 + 10R TP + OR_low SL."""
+    from cryptobot.bot.kis_strategy import evaluate_zarattini_bar1
+
+    # bar1: open=100, high=102, low=99.5, close=101 (양봉, body 1%)
+    df = _bar1_df(100.0, 102.0, 99.5, 101.0)
+    sig = evaluate_zarattini_bar1(df)
+    assert sig.should_buy is True
+    assert sig.stop_loss_price == 99.5  # OR_low
+    # 10R TP = 101 + 10×(101-99.5) = 101 + 15 = 116
+    assert sig.take_profit_price == 116.0
+    assert sig.risk_per_share == 1.5
+    assert "양봉" in sig.reason
+    assert "10R" in sig.reason
+
+
+def test_zarattini_bar1_bearish_skip_signal():
+    """첫 봉 음봉 → 매수 X (인버스 ETF 별도 평가 가정)."""
+    from cryptobot.bot.kis_strategy import evaluate_zarattini_bar1
+
+    df = _bar1_df(100.0, 100.5, 98.0, 99.0)  # 음봉 1%
+    sig = evaluate_zarattini_bar1(df)
+    assert sig.should_buy is False
+    assert "음봉" in sig.reason
+
+
+def test_zarattini_bar1_doji_skip():
+    """도지(몸통 < 0.05%) → 매매 X."""
+    from cryptobot.bot.kis_strategy import evaluate_zarattini_bar1
+
+    # body = 0.03% < 임계 0.05%
+    df = _bar1_df(100.00, 100.5, 99.5, 100.03)
+    sig = evaluate_zarattini_bar1(df)
+    assert sig.should_buy is False
+    assert "도지" in sig.reason
+
+
+def test_zarattini_bar1_doji_threshold_configurable():
+    """도지 임계 env로 변경 가능."""
+    from cryptobot.bot.kis_strategy import KISStrategyParams, evaluate_zarattini_bar1
+
+    df = _bar1_df(100.0, 100.5, 99.5, 100.5)  # body = 0.5%
+    # 임계 1.0% → 도지로 분류
+    p = KISStrategyParams(doji_threshold_pct=1.0)
+    sig = evaluate_zarattini_bar1(df, params=p)
+    assert sig.should_buy is False
+    assert "도지" in sig.reason
+    # 임계 0.05% → 양봉으로 분류
+    p2 = KISStrategyParams(doji_threshold_pct=0.05)
+    sig2 = evaluate_zarattini_bar1(df, params=p2)
+    assert sig2.should_buy is True
+
+
+def test_zarattini_bar1_empty_df():
+    """데이터 없으면 매수 X."""
+    from cryptobot.bot.kis_strategy import evaluate_zarattini_bar1
+
+    sig = evaluate_zarattini_bar1(None)
+    assert sig.should_buy is False
+    sig = evaluate_zarattini_bar1(pd.DataFrame())
+    assert sig.should_buy is False
+
+
+def test_zarattini_10r_take_profit_fires():
+    """매수 후 가격이 10R TP 도달 시 즉시 익절."""
+    from cryptobot.bot.kis_strategy import evaluate_sell
+
+    sig = evaluate_sell(
+        df=None,
+        current_price=116.0,
+        buy_price=101.0,
+        highest_since_buy=116.0,
+        stop_loss_price=99.5,
+        take_profit_price=116.0,  # 10R 도달
+    )
+    assert sig.should_sell is True
+    assert sig.is_profit_taking is True
+    assert "10R" in sig.reason
+
+
+def test_calc_position_size_risk_based_1pct():
+    """1% 리스크 사이징 — 계좌 $1000, 주당 리스크 $0.50 → 20주 (정수)."""
+    from cryptobot.bot.kis_strategy import KISStrategyParams, calc_position_size_risk_based
+
+    qty, _ = calc_position_size_risk_based(
+        available_budget=1000.0,
+        current_price=30.0,
+        risk_per_share=0.50,
+        fractional=False,
+        params=KISStrategyParams(risk_pct_per_trade=1.0),
+    )
+    # 1% 리스크 = $10 / $0.50 = 20주. 자본 한도 $1000/$30 = 33주. min = 20.
+    assert qty == 20.0
+
+
+def test_calc_position_size_risk_based_capital_constrained():
+    """리스크 사이징보다 자본 한도가 작은 경우 — 자본이 제약."""
+    from cryptobot.bot.kis_strategy import KISStrategyParams, calc_position_size_risk_based
+
+    qty, reason = calc_position_size_risk_based(
+        available_budget=290.0,  # $290 (≈ 400K KRW)
+        current_price=30.0,      # SOXL
+        risk_per_share=0.30,
+        fractional=False,
+        params=KISStrategyParams(risk_pct_per_trade=1.0),
+    )
+    # 리스크 사이징: $2.9 / $0.30 = 9.67 → 9주
+    # 자본 한도: $290 / $30 = 9.67 → 9주
+    # min = 9 (정수). 둘 비슷할 때 어느 쪽이든 9.
+    assert qty == 9.0
+
+
+def test_calc_position_size_risk_based_zero_risk():
+    """주당 리스크 0이면 사이징 불가."""
+    from cryptobot.bot.kis_strategy import calc_position_size_risk_based
+
+    qty, _ = calc_position_size_risk_based(
+        available_budget=1000.0,
+        current_price=30.0,
+        risk_per_share=0.0,
+        fractional=False,
+    )
+    assert qty == 0.0
