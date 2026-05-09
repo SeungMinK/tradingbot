@@ -3,6 +3,7 @@ import client from "../api/client";
 import StatCard from "../components/StatCard";
 import Pagination from "../components/Pagination";
 import { formatDateTime, formatNumber } from "../utils/format";
+import { cn } from "@/lib/utils";
 
 interface NewsItem {
   id: number;
@@ -130,55 +131,53 @@ export default function NewsPage() {
         </div>
       )}
 
-      {/* Filters */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-          <div style={{ display: "flex", gap: 6 }}>
+      {/* Filters (#348 Tailwind) */}
+      <div className="card mb-4">
+        <div className="flex justify-between items-center flex-wrap gap-2">
+          <div className="flex gap-1.5">
             {FILTERS.map((f) => (
               <button
                 key={f.value}
                 onClick={() => { setFilter(f.value); setPage(1); }}
-                style={{
-                  padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 13,
-                  background: filter === f.value ? "#4a9eff" : "#2a2d3e",
-                  color: filter === f.value ? "#fff" : "#8b8fa3",
-                }}
+                className={cn(
+                  "px-3.5 py-1.5 rounded-md border-none cursor-pointer text-sm transition-colors",
+                  filter === f.value
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:bg-accent"
+                )}
               >
                 {f.label}
               </button>
             ))}
           </div>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <div className="flex gap-1.5 items-center">
             <input
               placeholder="코인 검색 (BTC, ETH...)"
               value={coinFilter}
               onChange={(e) => { setCoinFilter(e.target.value.toUpperCase()); setPage(1); }}
-              style={{
-                padding: "6px 12px", borderRadius: 6, border: "1px solid var(--border)",
-                background: "var(--bg-secondary)", color: "var(--text-primary)", fontSize: 13, width: 160,
-              }}
+              className="px-3 py-1.5 rounded-md border border-border bg-card text-foreground text-sm w-40"
             />
-            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{formatNumber(total)}건</span>
+            <span className="text-xs text-muted-foreground">{formatNumber(total)}건</span>
           </div>
         </div>
       </div>
 
       {/* News List */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div className="flex flex-col gap-3">
         {news.map((n) => (
-          <div key={n.id} className="card" style={{ padding: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-              <div style={{ flex: 1 }}>
+          <div key={n.id} className="card p-4">
+            <div className="flex justify-between items-start mb-2">
+              <div className="flex-1">
                 <a
                   href={n.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{ fontSize: 15, fontWeight: 600, color: "var(--text-primary)", textDecoration: "none" }}
+                  className="text-base font-semibold text-foreground no-underline hover:text-primary"
                 >
                   {n.title}
                 </a>
               </div>
-              <div style={{ display: "flex", gap: 4, marginLeft: 12, flexShrink: 0 }}>
+              <div className="flex gap-1 ml-3 shrink-0">
                 <span className={`badge ${SENTIMENT_COLORS[n.sentiment_keyword] || "badge-yellow"}`}>
                   {SENTIMENT_KR[n.sentiment_keyword] || n.sentiment_keyword}
                 </span>
@@ -187,21 +186,20 @@ export default function NewsPage() {
             </div>
 
             {n.summary && (
-              <p style={{ fontSize: 13, color: "var(--text-secondary)", margin: "0 0 8px", lineHeight: 1.5 }}>
+              <p className="text-sm text-muted-foreground my-0 mb-2 leading-relaxed">
                 {n.summary.length > 200 ? n.summary.slice(0, 200) + "..." : n.summary}
               </p>
             )}
 
-            <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 11, color: "var(--text-muted)" }}>
+            <div className="flex gap-3 items-center text-xs text-muted-foreground">
               <span>{SOURCE_LABELS[n.source] || n.source}</span>
               <span>{n.published_at ? formatDateTime(n.published_at) : "-"}</span>
               {n.coins_mentioned && (
-                <div style={{ display: "flex", gap: 3 }}>
+                <div className="flex gap-1">
                   {n.coins_mentioned.split(",").map((c) => (
                     <span
                       key={c}
-                      className="badge badge-purple"
-                      style={{ fontSize: 10, cursor: "pointer" }}
+                      className="badge badge-purple text-[10px] cursor-pointer"
                       onClick={() => { setCoinFilter(c); setPage(1); }}
                     >
                       {c}
