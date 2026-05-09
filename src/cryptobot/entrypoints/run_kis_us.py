@@ -505,6 +505,11 @@ class KISUSBot:
             except APIError as e:
                 logger.warning("%s 일봉 조회 실패 — ATR 계산 불가: %s", symbol, e)
                 return None
+            # ATR은 *완성된* 14일 (오늘 진행 중 일봉은 high/low 부분 정보)이라
+            # 오늘 봉을 명시적으로 제외하고 계산해야 정확. KIS API 응답에 오늘이
+            # 포함될 수 있으므로 방어적으로 필터.
+            if hasattr(df_daily.index, "date"):
+                df_daily = df_daily[df_daily.index.date < ny_today]
             signal_ = evaluate_zarattini_3x_atr(df_today, df_daily, params=self._params)
             sl_price = signal_.stop_loss_price
             tp_price = None  # 3X 변형: TP 없음
