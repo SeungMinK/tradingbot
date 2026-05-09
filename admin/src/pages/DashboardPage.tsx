@@ -8,6 +8,7 @@ import type { BalanceResponse, PositionsResponse, BalanceHistory } from "../type
 import type { MarketSnapshot } from "../types/market";
 import type { Trade } from "../types/trades";
 import StatCard from "../components/StatCard";
+import BotStatusBanner from "../components/BotStatusBanner";
 import { formatKRW, formatPercent, formatDateTime } from "../utils/format";
 import { getMarketStateKR } from "../utils/indicatorDescriptions";
 
@@ -88,15 +89,25 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div className="page-header flex justify-between items-center">
         <div>
           <h1>대시보드</h1>
-          <p>전체 현황 요약 (60초 자동 갱신)</p>
+          <p className="text-muted-foreground">전체 현황 요약 (60초 자동 갱신)</p>
         </div>
-        <button onClick={fetchAll} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#4a9eff", color: "#fff", cursor: "pointer", fontSize: 13 }}>
+        <button
+          onClick={fetchAll}
+          className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity"
+        >
           새로고침
         </button>
       </div>
+
+      {/* #333 봇 상태 배너 — 한눈에 봇 상황 파악 */}
+      <BotStatusBanner
+        marketCapital={marketCapital}
+        marketUniverse={marketUniverse}
+        recentTrades={recentTrades}
+      />
 
       {/* #287 탭: 전체 / 코인 / KIS */}
       <div style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: "1px solid var(--border)" }}>
