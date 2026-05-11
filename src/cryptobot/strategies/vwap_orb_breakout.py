@@ -30,7 +30,6 @@ Option 1 (#360, 2026-05-09 채택):
 from __future__ import annotations
 
 import logging
-import os
 from datetime import datetime, time as dtime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -42,22 +41,10 @@ from cryptobot.strategies.base import BaseStrategy, Signal, StrategyInfo
 logger = logging.getLogger(__name__)
 KST = ZoneInfo("Asia/Seoul")
 
-# Option 1 디폴트 (#360, 백테스트 1위 조합)
-ORB_HOUR_KST = 22       # ORB 시작 KST 시 (env COIN_ORB_HOUR_KST)
-EOD_HOUR_KST = 11       # EOD 청산 KST 시 (env COIN_EOD_HOUR_KST)
-ENTRY_WINDOW_HOURS = 5  # ORB 형성(1h) 후 진입 허용 시간 (env COIN_ENTRY_WINDOW_HOURS)
-
-
-def _orb_hour() -> int:
-    return int(os.getenv("COIN_ORB_HOUR_KST", str(ORB_HOUR_KST)))
-
-
-def _eod_hour() -> int:
-    return int(os.getenv("COIN_EOD_HOUR_KST", str(EOD_HOUR_KST)))
-
-
-def _entry_window_h() -> int:
-    return int(os.getenv("COIN_ENTRY_WINDOW_HOURS", str(ENTRY_WINDOW_HOURS)))
+# Option 1 디폴트 (#360, 백테스트 1위 조합) — 코드에서만 관리 (env 분기 제거)
+ORB_HOUR_KST = 22       # ORB 시작 KST 시
+EOD_HOUR_KST = 11       # EOD 청산 KST 시
+ENTRY_WINDOW_HOURS = 5  # ORB 형성(1h) 후 진입 허용 시간
 
 
 class VwapOrbBreakout(BaseStrategy):
@@ -187,13 +174,13 @@ class VwapOrbBreakout(BaseStrategy):
 def is_eod_window(now: datetime | None = None, window_minutes: int = 5) -> bool:
     """EOD 시점 ±window_minutes 사이면 True (강제 청산 윈도우).
 
-    EOD 시각은 _eod_hour() (env COIN_EOD_HOUR_KST 또는 디폴트 KST 11:00).
+    EOD 시각은 EOD_HOUR_KST (현재 KST 11:00).
     """
     if now is None:
         now = datetime.now(KST)
     elif now.tzinfo is None:
         now = now.replace(tzinfo=KST)
-    eod = now.replace(hour=_eod_hour(), minute=0, second=0, microsecond=0)
+    eod = now.replace(hour=EOD_HOUR_KST, minute=0, second=0, microsecond=0)
     delta = abs((now - eod).total_seconds())
     return delta <= window_minutes * 60
 
@@ -209,10 +196,8 @@ def is_entry_window(now: datetime | None = None) -> bool:
     elif now.tzinfo is None:
         now = now.replace(tzinfo=KST)
 
-    orb_h = _orb_hour()
-    window_h = _entry_window_h()
-    entry_start = (orb_h + 1) % 24
-    entry_end = (orb_h + 1 + window_h) % 24
+    entry_start = (ORB_HOUR_KST + 1) % 24
+    entry_end = (ORB_HOUR_KST + 1 + ENTRY_WINDOW_HOURS) % 24
 
     h = now.hour
     if entry_start <= entry_end:
@@ -235,12 +220,11 @@ def filter_session_bars(df: pd.DataFrame, now: datetime | None = None) -> pd.Dat
     if now is None:
         now = datetime.now(KST)
 
-    orb_h = _orb_hour()
-    if now.hour >= orb_h:
-        session_start = now.replace(hour=orb_h, minute=0, second=0, microsecond=0)
+    if now.hour >= ORB_HOUR_KST:
+        session_start = now.replace(hour=ORB_HOUR_KST, minute=0, second=0, microsecond=0)
     else:
         session_start = (now - timedelta(days=1)).replace(
-            hour=orb_h, minute=0, second=0, microsecond=0
+            hour=ORB_HOUR_KST, minute=0, second=0, microsecond=0
         )
 
     if df.index.tz is None:
