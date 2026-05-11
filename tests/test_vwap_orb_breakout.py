@@ -241,3 +241,65 @@ def test_check_sell_holds_in_normal_run():
     s = _strategy_with_roi_table()
     sig = s.check_sell(df=None, current_price=101.5, buy_price=100.0)
     assert sig.signal_type == "hold"
+
+
+# === #372: 트레일링 최소 익절 가드 ===
+
+
+def test_trailing_blocked_below_min_profit():
+    """net_pnl이 min_profit_for_trailing 미만이면 트레일링 hold."""
+    s = _strategy_with_roi_table()
+    # 피크 102.0까지 올렸다가 99.0으로 -2.94% drop (trailing -3% 거의 발동선)
+    s.check_sell(df=None, current_price=102.0, buy_price=100.0)
+    s.check_sell(df=None, current_price=101.5, buy_price=100.0)
+    # current 101.0 (net +0.8%, drop_pct from 102 = -0.98%) — net_pnl=0.8% < 1.5% 가드
+    sig = s.check_sell(df=None, current_price=101.0, buy_price=100.0)
+    assert sig.signal_type == "hold"
+    assert "보유 유지" in sig.reason
+
+
+def test_trailing_blocked_with_drop_but_below_gate():
+    """drop이 trailing 임계 넘어도 net_pnl < 1.5%면 hold."""
+    s = _strategy_with_roi_table()
+    s.check_sell(df=None, current_price=101.0, buy_price=100.0)
+    # 피크 101 → 97.8 (-3.17%): 트레일링 임계 넘었지만 net_pnl = -2.3% (음수)
+    # → 가드 안되더라도 net_pnl < 1.5%여서 hold
+    sig = s.check_sell(df=None, current_price=97.8, buy_price=100.0)
+    assert sig.signal_type == "hold"
+
+
+def test_trailing_fires_when_above_gate():
+    """net_pnl >= 1.5%이고 drop >= trailing 임계면 매도."""
+    s = _strategy_with_roi_table()
+    # 피크 110, current 105 → drop -4.5%, net_pnl = ~4.8% (1.5% 가드 통과)
+    s.check_sell(df=None, current_price=110.0, buy_price=100.0)
+    sig = s.check_sell(df=None, current_price=105.0, buy_price=100.0)
+    assert sig.signal_type == "sell"
+    assert sig.is_profit_taking is True
+    assert "트레일링" in sig.reason
+
+
+def test_min_profit_for_trailing_override_via_params():
+    """params.extra.min_profit_for_trailing 으로 가드값 override 가능."""
+    from cryptobot.strategies.base import StrategyParams
+
+    params = StrategyParams(
+        stop_loss_pct=-5.0,
+        trailing_stop_pct=-3.0,
+        extra={"min_profit_for_trailing": 0.5},  # 가드 낮춤
+    )
+    s = VwapOrbBreakout(params)
+    # 피크 102, current 99 → drop -2.94% < -3.0 미발동
+    s.check_sell(df=None, current_price=102.0, buy_price=100.0)
+    # 피크 102, current 98.9 → drop -3.04%, net_pnl ~-1.2% < 0.5%
+    sig = s.check_sell(df=None, current_price=98.9, buy_price=100.0)
+    assert sig.signal_type == "hold"  # net 손실권
+
+
+def test_default_min_profit_constant():
+    """디폴트 MIN_PROFIT_FOR_TRAILING 상수 노출."""
+    from cryptobot.strategies.vwap_orb_breakout import MIN_PROFIT_FOR_TRAILING
+
+    assert MIN_PROFIT_FOR_TRAILING == 1.5
+    s = _strategy_with_roi_table()
+    assert s._min_profit_for_trailing == 1.5
