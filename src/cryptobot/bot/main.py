@@ -497,12 +497,18 @@ class CryptoBot:
             )
 
     def _maybe_eod_clearance(self) -> None:
-        """#322: vwap_orb_breakout 활성 시 EOD 시점 ±5분에 보유 코인 강제 매도.
+        """#322/#373: vwap_orb_breakout 활성 시 EOD 시점 또는 missed-EOD 시 보유 코인 강제 매도.
 
         Zarattini 논문 EOD 청산 — 24/7 코인 시장에선 사용자 정의 시점 (EOD_HOUR_KST).
+        봇 재시작·장애로 EOD 윈도우(±5분)를 놓친 경우, EOD ~ 다음 ORB(22시) 사이에
+        재시작 시 즉시 청산하여 다음 사이클에 현금 확보.
         """
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
         from cryptobot.strategies.vwap_orb_breakout import (
             EOD_HOUR_KST,
+            ORB_HOUR_KST,
             VwapOrbBreakout,
             is_eod_window,
         )
@@ -510,7 +516,15 @@ class CryptoBot:
         s = self._strategy_sel.current_strategy
         if not isinstance(s, VwapOrbBreakout):
             return
-        if not is_eod_window():
+
+        in_window = is_eod_window()
+        now_kst = datetime.now(ZoneInfo("Asia/Seoul"))
+        # #373: missed-EOD 복구 — EOD 윈도우 밖이지만 EOD 지나서 다음 ORB 전이면 복구 청산
+        missed_eod = (
+            not in_window
+            and EOD_HOUR_KST <= now_kst.hour < ORB_HOUR_KST
+        )
+        if not in_window and not missed_eod:
             return
 
         if not self._trader.is_ready:
@@ -526,7 +540,10 @@ class CryptoBot:
         if not active_buys:
             return
 
-        eod_label = f"KST {EOD_HOUR_KST:02d}:00"
+        if missed_eod:
+            eod_label = f"KST {EOD_HOUR_KST:02d}:00 지연 복구"
+        else:
+            eod_label = f"KST {EOD_HOUR_KST:02d}:00"
         logger.info("[EOD 청산] 보유 %d종목 청산 시작 (%s)", len(active_buys), eod_label)
 
         for trade in active_buys:
