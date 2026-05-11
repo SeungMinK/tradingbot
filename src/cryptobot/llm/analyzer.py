@@ -1104,6 +1104,9 @@ class LLMAnalyzer:
             "signal_period": "sig",
             "squeeze_lookback": "sq_lb",
             "range_pct": "range",
+            "min_profit_for_trailing": "min_tp",
+            "volume_spike_multiplier": "vol_sp",
+            "orb_minutes": "orb_m",
         }
         parts = []
         for key, value in params.items():

@@ -46,6 +46,10 @@ ORB_HOUR_KST = 22       # ORB 시작 KST 시
 EOD_HOUR_KST = 11       # EOD 청산 KST 시
 ENTRY_WINDOW_HOURS = 5  # ORB 형성(1h) 후 진입 허용 시간
 
+# #372: 트레일링 발동 최소 익절 임계 (net_pnl 기준 %)
+# 0.5%대 푼돈 트레일링 매도 회피. 미만 수익권은 EOD까지 보유.
+MIN_PROFIT_FOR_TRAILING = 1.5
+
 
 class VwapOrbBreakout(BaseStrategy):
     """VWAP + ORB + 거래량 spike 단타 (코인용, KST 22:00 ORB + 11:00 EOD)."""
@@ -55,6 +59,9 @@ class VwapOrbBreakout(BaseStrategy):
         self._orb_minutes = int(self.params.extra.get("orb_minutes", 60))
         self._volume_spike = float(self.params.extra.get("volume_spike_multiplier", 1.5))
         self._bar_minutes = int(self.params.extra.get("bar_minutes", 15))
+        self._min_profit_for_trailing = float(
+            self.params.extra.get("min_profit_for_trailing", MIN_PROFIT_FOR_TRAILING)
+        )
 
     def info(self) -> StrategyInfo:
         return StrategyInfo(
@@ -159,16 +166,21 @@ class VwapOrbBreakout(BaseStrategy):
             )
 
         drop_pct = (current_price - self._highest_price) / self._highest_price * 100
-        if drop_pct <= self.params.trailing_stop_pct and net_pnl > 0:
+        if drop_pct <= self.params.trailing_stop_pct and net_pnl >= self._min_profit_for_trailing:
             return Signal(
                 "sell",
                 0.8,
-                f"트레일링 (실질 {net_pnl:+.2f}%)",
+                f"트레일링 (실질 {net_pnl:+.2f}%, ≥{self._min_profit_for_trailing}% 가드)",
                 trigger_value=round(drop_pct, 2),
                 is_profit_taking=True,
             )
 
-        return Signal("hold", 0.0, f"보유 유지 (실질 {net_pnl:+.2f}%, EOD 청산 대기)")
+        return Signal(
+            "hold",
+            0.0,
+            f"보유 유지 (실질 {net_pnl:+.2f}%, "
+            f"트레일링 가드 ≥{self._min_profit_for_trailing}%, EOD 청산 대기)",
+        )
 
 
 def is_eod_window(now: datetime | None = None, window_minutes: int = 5) -> bool:
