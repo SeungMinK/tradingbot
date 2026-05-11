@@ -497,11 +497,15 @@ class CryptoBot:
             )
 
     def _maybe_eod_clearance(self) -> None:
-        """#322: vwap_orb_breakout 활성 시 KST 09:00 ±5분에 보유 코인 강제 매도.
+        """#322: vwap_orb_breakout 활성 시 EOD 시점 ±5분에 보유 코인 강제 매도.
 
-        Zarattini 논문 EOD 청산 — 24/7 코인 시장에선 사용자 정의 시점(KST 09:00).
+        Zarattini 논문 EOD 청산 — 24/7 코인 시장에선 사용자 정의 시점 (EOD_HOUR_KST).
         """
-        from cryptobot.strategies.vwap_orb_breakout import VwapOrbBreakout, is_eod_window
+        from cryptobot.strategies.vwap_orb_breakout import (
+            EOD_HOUR_KST,
+            VwapOrbBreakout,
+            is_eod_window,
+        )
 
         s = self._strategy_sel.current_strategy
         if not isinstance(s, VwapOrbBreakout):
@@ -522,7 +526,8 @@ class CryptoBot:
         if not active_buys:
             return
 
-        logger.info("[EOD 청산] 보유 %d종목 청산 시작 (KST 09:00)", len(active_buys))
+        eod_label = f"KST {EOD_HOUR_KST:02d}:00"
+        logger.info("[EOD 청산] 보유 %d종목 청산 시작 (%s)", len(active_buys), eod_label)
 
         for trade in active_buys:
             coin = trade["coin"]
@@ -539,7 +544,7 @@ class CryptoBot:
                         price=order.price, amount=order.amount,
                         total_krw=order.total_krw, fee_krw=order.fee_krw,
                         strategy="vwap_orb_breakout",
-                        trigger_reason="EOD 청산 (KST 09:00)",
+                        trigger_reason=f"EOD 청산 ({eod_label})",
                         profit_pct=pnl_pct, buy_trade_id=trade["id"],
                     )
                     logger.info("[EOD] %s 매도 @ %.2f (%.2f%%)", coin, order.price, pnl_pct)
