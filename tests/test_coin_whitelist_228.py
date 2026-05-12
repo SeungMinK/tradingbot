@@ -91,11 +91,16 @@ def test_whitelist_seeded_in_db(db):
 
 
 def test_whitelist_mode_active_uses_only_whitelist(db):
-    """화이트리스트 모드 ON → active_coins는 화이트리스트뿐."""
+    """화이트리스트 모드 ON → active_coins는 DB의 coin_whitelist (마이그레이션 후 15종, #386).
+
+    백테스트 결과가 비어있으면 필터가 원본 화이트리스트 그대로 반환.
+    """
     mgr = _make_mgr(db)  # 기본값 ON
     mgr.refresh()
-    # 보유 코인 없으면 화이트리스트 그대로
-    assert set(mgr.active_coins) == set(CoinManager.DEFAULT_WHITELIST)
+    # DB의 coin_whitelist 값 (#386 마이그레이션 후 15종)
+    wl_row = db.execute("SELECT value FROM bot_config WHERE key='coin_whitelist'").fetchone()
+    expected = {c.strip() for c in dict(wl_row)["value"].split(",") if c.strip()}
+    assert set(mgr.active_coins) == expected
 
 
 def test_held_coins_protected_outside_whitelist(db):
@@ -159,11 +164,14 @@ def _seed_backtest(db, coin: str, num_trades: int, avg_profit_pct: float, run_da
 
 
 def test_backtest_filter_disabled_keeps_whitelist(db):
-    """coin_backtest_filter_enabled=False → 화이트리스트 그대로."""
+    """coin_backtest_filter_enabled=False → DB의 coin_whitelist 그대로 (마이그레이션 후 15종)."""
     _seed_backtest(db, "KRW-BTC", num_trades=5, avg_profit_pct=10.0)
     mgr = _make_mgr(db, coin_backtest_filter_enabled="false")
     wl = mgr._get_whitelist()
-    assert set(wl) == set(CoinManager.DEFAULT_WHITELIST)
+    # DB coin_whitelist 값 (#386 마이그레이션 적용 후)
+    wl_row = db.execute("SELECT value FROM bot_config WHERE key='coin_whitelist'").fetchone()
+    expected = {c.strip() for c in dict(wl_row)["value"].split(",") if c.strip()}
+    assert set(wl) == expected
 
 
 def test_backtest_filter_enabled_intersects_with_validated(db):
@@ -178,11 +186,13 @@ def test_backtest_filter_enabled_intersects_with_validated(db):
 
 
 def test_backtest_filter_no_results_falls_back_to_whitelist(db):
-    """필터 ON + 백테스트 결과 없음 → 원본 화이트리스트 (안전 fallback)."""
+    """필터 ON + 백테스트 결과 없음 → DB의 coin_whitelist (안전 fallback)."""
     mgr = _make_mgr(db, coin_backtest_filter_enabled="true")
     wl = mgr._get_whitelist()
     # 백테스트 결과 없으면 filter_coins가 원본 그대로 반환
-    assert set(wl) == set(CoinManager.DEFAULT_WHITELIST)
+    wl_row = db.execute("SELECT value FROM bot_config WHERE key='coin_whitelist'").fetchone()
+    expected = {c.strip() for c in dict(wl_row)["value"].split(",") if c.strip()}
+    assert set(wl) == expected
 
 
 def test_backtest_filter_empty_intersection_returns_default_whitelist(db):

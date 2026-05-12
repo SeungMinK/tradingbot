@@ -134,9 +134,9 @@ def test_backtest_filter_config_seeded(db_with_active_bb_rsi):
     assert "coin_backtest_min_trades" in keys
 
 
-def test_backtest_filter_disabled_by_default(db_with_active_bb_rsi):
-    """coin_backtest_filter_enabled 디폴트 false (사용자가 명시적 ON)."""
+def test_backtest_filter_enabled_after_migration_386(db_with_active_bb_rsi):
+    """#386 마이그레이션 적용으로 coin_backtest_filter_enabled = true."""
     row = db_with_active_bb_rsi.execute(
         "SELECT value FROM bot_config WHERE key = 'coin_backtest_filter_enabled'"
     ).fetchone()
-    assert dict(row)["value"] == "false"
+    assert dict(row)["value"] == "true"
