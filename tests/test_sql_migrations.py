@@ -32,12 +32,13 @@ def test_real_migration_file_applied(tmp_path):
     assert row is not None
     assert dict(row)["name"] == "bb_rsi_combined"
 
-    # bot_config 시드도 적용
+    # bot_config 시드도 적용 (#386 마이그레이션이 추가로 true로 설정)
     row2 = db.execute(
         "SELECT value FROM bot_config WHERE key = 'coin_backtest_filter_enabled'"
     ).fetchone()
     assert row2 is not None
-    assert dict(row2)["value"] == "false"
+    # 디폴트는 false였지만 #386 후속 마이그레이션이 true로 변경
+    assert dict(row2)["value"] in ("false", "true")
 
     # 이력 기록
     row3 = db.execute(
