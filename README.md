@@ -104,10 +104,23 @@
 
 ---
 
-## 핵심 알고리즘 — Zarattini ORB 단타
+## 핵심 알고리즘
 
-학술 근거: Zarattini & Aziz (2023) ["Can Day Trading Really Be Profitable?"](https://www.semanticscholar.org/paper/Can-Day-Trading-Really-Be-Profitable-Evidence-of-in-Zarattini-Aziz/4d55f526cc56f08662cb8976796cd3b719ef6d2b)
-QQQ 5분 ORB 백테스트 → **누적 +1,484%** (2016~2023, 8년) / 연환산 알파 33%.
+**주식 (KIS US):** Zarattini ORB 단타 — 학술 근거 Zarattini & Aziz (2023) ["Can Day Trading Really Be Profitable?"](https://www.semanticscholar.org/paper/Can-Day-Trading-Really-Be-Profitable-Evidence-of-in-Zarattini-Aziz/4d55f526cc56f08662cb8976796cd3b719ef6d2b) — QQQ 5분 ORB 8년 +1,484%.
+
+**코인 (Upbit, #382):** BB+RSI Swing — 학술 근거 [Liu/Tsyvinski J.Finance 2022](https://onlinelibrary.wiley.com/doi/abs/10.1111/jofi.13119) (momentum factor) + BB+RSI 결합 정확도 87.5% ([ResearchGate 2024](https://www.researchgate.net/publication/392316831_Effectiveness_of_RSI_and_Bollinger_Bands_in_Identifying_Buy_and_Sell_Signals)).
+
+### 코인 Swing 모드 (#376/#378/#380/#382, 2026-05-12 채택)
+
+> BB 하단 + RSI 과매도 동시 충족 시 저점 진입 → **+5% 도달 후** 추세 끝까지 보유 → 피크 -2.5% 빠지면 트레일링 매도. 시간 기반 익절(roi_table) 우회. ATR 변동성 regime별 adaptive 파라미터 옵션.
+
+**구현 4단계:**
+1. **Tier 1 (#376):** bb_rsi_combined의 roi_table 우회 + `min_profit_for_trailing=5.0` 가드
+2. **백테스트 필터 (#378):** 최신 백테스트 `avg_profit_pct ≥ 5% AND num_trades ≥ 3` 통과 코인만 매수 (실데이터: NEWT 단일 -31k 같은 미검증 알트 차단)
+3. **Tier 2 (#380):** ATR(14) 변동성 regime — `low` (가드 3%), `normal` (5%), `high` (7%) 동적 파라미터
+4. **활성 전환 (#382):** 활성 전략 = bb_rsi_combined, DB 마이그레이션 `scripts/migrate_activate_bb_rsi_swing.sql`
+
+### Zarattini ORB (주식)
 
 ### 한 줄 요약
 
