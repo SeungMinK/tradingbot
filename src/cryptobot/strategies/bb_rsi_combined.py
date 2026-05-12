@@ -39,6 +39,11 @@ class BBRSICombined(BaseStrategy):
         self._min_profit_for_trailing = float(
             self.params.extra.get("min_profit_for_trailing", MIN_PROFIT_FOR_TRAILING)
         )
+        # #380: ATR 변동성 regime 기반 adaptive 파라미터
+        self._adaptive_regime_enabled = bool(
+            self.params.extra.get("adaptive_regime_enabled", False)
+        )
+        self._atr_period = int(self.params.extra.get("atr_period", 14))
 
     def info(self) -> StrategyInfo:
         return StrategyInfo(
@@ -127,15 +132,34 @@ class BBRSICombined(BaseStrategy):
 
         return Signal("hold", 0.0, f"조건 미충족 (RSI={rsi:.0f})")
 
+    def _resolve_runtime_params(self, df: pd.DataFrame, current_price: float) -> tuple[float, float, float, str]:
+        """현재 시점 (min_profit_for_trailing, stop_loss_pct, trailing_stop_pct, regime_label) 결정.
+
+        adaptive_regime_enabled=True 시 ATR regime 분류로 override, 아니면 정적 params.
+        """
+        if self._adaptive_regime_enabled and df is not None:
+            from cryptobot.strategies.volatility_regime import adaptive_params, classify_regime
+
+            regime = classify_regime(df, current_price, period=self._atr_period)
+            ap = adaptive_params(regime)
+            return ap.min_profit_for_trailing, ap.stop_loss_pct, ap.trailing_stop_pct, regime
+        return (
+            self._min_profit_for_trailing,
+            self.params.stop_loss_pct,
+            self.params.trailing_stop_pct,
+            "static",
+        )
+
     def check_sell(self, df: pd.DataFrame, current_price: float, buy_price: float) -> Signal:
-        """매도 (Swing 모드, #376). roi_table 우회.
+        """매도 (Swing 모드, #376/#380). roi_table 우회.
 
         우선순위:
-        1. 손절 (params.stop_loss_pct) — 무조건
-        2. 트레일링 (params.trailing_stop_pct) — net_pnl >= min_profit_for_trailing 가드 통과 시만
+        1. 손절 (stop_loss_pct) — 무조건
+        2. 트레일링 (trailing_stop_pct) — net_pnl >= min_profit_for_trailing 가드 통과 시만
         3. RSI 정상 복귀 — 가드 통과 시만
         4. BB 중간선 도달 — 가드 통과 시만
 
+        adaptive_regime_enabled=True 시 ATR regime별 다른 파라미터 적용 (#380).
         가드 미달 익절성 매도는 hold로 → 큰 추세 끝까지 보유 (user 멘탈 모델).
         """
         # 피크 추적
@@ -144,55 +168,50 @@ class BBRSICombined(BaseStrategy):
 
         pnl_pct = (current_price - buy_price) / buy_price * 100
         net_pnl = self._net_pnl_pct(pnl_pct)
+        min_profit, stop_loss, trailing, regime = self._resolve_runtime_params(df, current_price)
+        regime_str = f" [{regime}]" if regime != "static" else ""
 
         # 1. 손절 (무조건, 가드 무시)
-        if pnl_pct <= self.params.stop_loss_pct:
+        if pnl_pct <= stop_loss:
             return Signal(
                 "sell",
                 1.0,
-                f"손절 {pnl_pct:.2f}%",
+                f"손절 {pnl_pct:.2f}%{regime_str}",
                 trigger_value=round(pnl_pct, 2),
                 is_profit_taking=False,
             )
 
-        # 2. 트레일링 (피크 갱신 후 -trailing_stop_pct 빠질 때) — +5% 가드 통과 시만
+        # 2. 트레일링 (피크 갱신 후 -trailing 빠질 때) — 가드 통과 시만
         drop_pct = (current_price - self._highest_price) / self._highest_price * 100
-        if (
-            drop_pct <= self.params.trailing_stop_pct
-            and net_pnl >= self._min_profit_for_trailing
-        ):
+        if drop_pct <= trailing and net_pnl >= min_profit:
             return Signal(
                 "sell",
                 0.8,
-                f"트레일링 (실질 {net_pnl:+.2f}%, ≥{self._min_profit_for_trailing}% 가드)",
+                f"트레일링 (실질 {net_pnl:+.2f}%, ≥{min_profit}% 가드{regime_str})",
                 trigger_value=round(drop_pct, 2),
                 is_profit_taking=True,
             )
 
-        # 3. RSI 정상 복귀 (mean reversion 완료) — +5% 가드 통과 시만
+        # 3. RSI 정상 복귀 (mean reversion 완료) — 가드 통과 시만
         rsi = self._calc_rsi(df) if df is not None else None
-        if (
-            rsi is not None
-            and rsi >= self._rsi_overbought
-            and net_pnl >= self._min_profit_for_trailing
-        ):
+        if rsi is not None and rsi >= self._rsi_overbought and net_pnl >= min_profit:
             return Signal(
                 "sell",
                 0.7,
-                f"RSI({rsi:.0f}) 정상 복귀 (실질 {net_pnl:+.2f}%)",
+                f"RSI({rsi:.0f}) 정상 복귀 (실질 {net_pnl:+.2f}%{regime_str})",
                 trigger_value=round(rsi, 1),
                 is_profit_taking=True,
             )
 
-        # 4. BB 중간선 도달 — +5% 가드 통과 시만
+        # 4. BB 중간선 도달 — 가드 통과 시만
         bb = self._calc_bb(df) if df is not None else None
         if bb is not None:
             ma, _upper, _lower = bb
-            if current_price >= ma and net_pnl >= self._min_profit_for_trailing:
+            if current_price >= ma and net_pnl >= min_profit:
                 return Signal(
                     "sell",
                     0.6,
-                    f"BB 중간선 익절 (실질 +{net_pnl:.2f}%)",
+                    f"BB 중간선 익절 (실질 +{net_pnl:.2f}%{regime_str})",
                     trigger_value=round(ma, 2),
                     is_profit_taking=True,
                 )
@@ -202,5 +221,5 @@ class BBRSICombined(BaseStrategy):
             "hold",
             0.0,
             f"보유 유지 ({rsi_str}실질 {net_pnl:+.2f}%, "
-            f"트레일링 가드 ≥{self._min_profit_for_trailing}%)",
+            f"트레일링 가드 ≥{min_profit}%{regime_str})",
         )
