@@ -223,3 +223,93 @@ def test_check_buy_strong_signal():
     sig = s.check_buy(df, current_price=85.0)  # 마지막 close보다 낮은 가격
     # BB 하단 + RSI 과매도 가능성. 다만 데이터에 따라 결과 다를 수 있어 type만 확인
     assert sig.signal_type in ("buy", "hold")
+
+
+# === #380: adaptive regime 통합 ===
+
+
+def _strategy_adaptive() -> BBRSICombined:
+    """adaptive_regime_enabled=True 인 인스턴스."""
+    params = StrategyParams(
+        stop_loss_pct=-5.0,
+        trailing_stop_pct=-2.5,
+        extra={
+            "bb_std": 2.0, "bb_period": 20, "rsi_period": 14,
+            "rsi_oversold": 30, "rsi_overbought": 50,
+            "adaptive_regime_enabled": True,
+            "atr_period": 14,
+        },
+    )
+    return BBRSICombined(params)
+
+
+def _make_df_with_range(closes: list[float], range_pct: float) -> pd.DataFrame:
+    """high/low를 close ±range_pct로."""
+    rows = []
+    base = pd.Timestamp("2026-05-01")
+    for i, c in enumerate(closes):
+        rows.append({
+            "date": base + pd.Timedelta(days=i),
+            "open": c,
+            "high": c * (1 + range_pct),
+            "low": c * (1 - range_pct),
+            "close": c,
+            "volume": 1000,
+        })
+    return pd.DataFrame(rows).set_index("date")
+
+
+def test_adaptive_disabled_uses_static_params():
+    """adaptive 미사용 시 정적 5% 가드 그대로."""
+    s = _strategy()  # adaptive 끈 디폴트
+    df = _make_df_with_range([100.0] * 30, range_pct=0.005)
+    # +3.5% 수익 (정적 5% 가드 미달 → hold)
+    sig = s.check_sell(df, current_price=103.5, buy_price=100.0)
+    assert sig.signal_type == "hold"
+    assert "[low]" not in (sig.reason or "")
+
+
+def test_adaptive_low_regime_uses_3pct_guard():
+    """low-vol regime → 3% 가드 → +3.5%면 가드 통과."""
+    s = _strategy_adaptive()
+    df = _make_df_with_range([100.0] * 30, range_pct=0.005)  # low regime
+    # 피크 갱신
+    s.check_sell(df, current_price=104.0, buy_price=100.0)
+    # 피크에서 -2% drop, low regime trailing -1.5% → 발동, net +3.9% > 3% 가드 통과
+    sig = s.check_sell(df, current_price=101.9, buy_price=100.0)
+    if sig.signal_type == "sell":
+        assert "[low]" in sig.reason or "low" in sig.reason
+
+
+def test_adaptive_high_regime_uses_7pct_guard():
+    """high-vol regime → 7% 가드 → +5% 수익도 트레일링 안 발동 (디폴트보다 보수적)."""
+    s = _strategy_adaptive()
+    df = _make_df_with_range([100.0] * 30, range_pct=0.04)  # high regime
+    s.check_sell(df, current_price=106.0, buy_price=100.0)  # 피크 갱신, +6%
+    # 피크 106 → current 102 (-3.77% drop), net = 1.9% (가드 7% 미달)
+    sig = s.check_sell(df, current_price=102.0, buy_price=100.0)
+    assert sig.signal_type == "hold"
+
+
+def test_adaptive_regime_label_in_message():
+    """매도/hold 메시지에 regime label 포함 ([low]/[normal]/[high])."""
+    s = _strategy_adaptive()
+    df = _make_df_with_range([100.0] * 30, range_pct=0.005)  # low
+    sig = s.check_sell(df, current_price=101.0, buy_price=100.0)
+    assert "[low]" in sig.reason or "low" in sig.reason.lower()
+
+
+def test_adaptive_stop_loss_varies_per_regime():
+    """low regime stop_loss -3%, high regime -7% — boundary 확인."""
+    s = _strategy_adaptive()
+    df_low = _make_df_with_range([100.0] * 30, range_pct=0.005)  # low
+    # -3.5%는 low regime stop_loss(-3%) 초과 → 손절
+    sig = s.check_sell(df_low, current_price=96.5, buy_price=100.0)
+    assert sig.signal_type == "sell"
+    assert "손절" in sig.reason
+
+    s2 = _strategy_adaptive()
+    df_high = _make_df_with_range([100.0] * 30, range_pct=0.04)  # high
+    # -3.5%는 high regime stop_loss(-7%) 미달 → hold
+    sig2 = s2.check_sell(df_high, current_price=96.5, buy_price=100.0)
+    assert sig2.signal_type == "hold"
