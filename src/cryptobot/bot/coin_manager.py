@@ -35,12 +35,32 @@ class CoinManager:
         self._init_collectors()
 
     def _get_whitelist(self) -> list[str] | None:
-        """#228: 활성 화이트리스트 반환. None이면 화이트리스트 미사용 (기존 동작)."""
+        """#228: 활성 화이트리스트 반환. None이면 화이트리스트 미사용 (기존 동작).
+
+        #378: coin_backtest_filter_enabled=True 시 백테스트 검증 통과 코인만 남김.
+        """
         if not self._config.get_bool("coin_whitelist_enabled", True):
             return None
         raw = self._config.get("coin_whitelist", ",".join(self.DEFAULT_WHITELIST))
         coins = [c.strip() for c in raw.split(",") if c.strip()]
-        return coins if coins else None
+        if not coins:
+            return None
+
+        # #378: backtest-validated 필터 (옵션)
+        if self._config.get_bool("coin_backtest_filter_enabled", False):
+            from cryptobot.bot.backtest_coin_filter import BacktestCoinFilter
+
+            filter_obj = BacktestCoinFilter(
+                self._db,
+                min_avg_profit=float(self._config.get("coin_backtest_min_avg_profit", "5.0")),
+                min_trades=int(self._config.get("coin_backtest_min_trades", "3")),
+            )
+            coins = filter_obj.filter_coins(coins)
+            if not coins:
+                logger.warning("backtest 필터 후 빈 리스트 — 원본 디폴트 유지")
+                return list(self.DEFAULT_WHITELIST)
+
+        return coins
 
     def _init_collectors(self) -> None:
         """활성 코인별 DataCollector 초기화 + 불필요한 collector 정리."""
