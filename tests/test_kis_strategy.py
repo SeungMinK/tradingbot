@@ -120,7 +120,7 @@ def test_position_size_kr_integer_shares():
         fractional=False,
         params=KISStrategyParams(max_position_per_symbol_pct=40.0),
     )
-    # 한도 80,000 / 70,000 = 1주
+    # #388: 한도 80,000 / (70,000 × 1.015 = 71,050) = floor(1.126) = 1주
     assert qty == 1.0
     assert "1주" in reason
 
@@ -143,9 +143,9 @@ def test_position_size_us_fractional():
         fractional=True,
         params=KISStrategyParams(max_position_per_symbol_pct=30.0),
     )
-    # 한도 60,000 / 100,000 = 0.6주
-    assert qty == 0.6
-    assert "0.6" in reason
+    # #388: 한도 60,000 / (100,000 × 1.015 = 101,500) ≈ 0.5911
+    assert 0.58 < qty < 0.60
+    assert "0.59" in reason
 
 
 def test_position_size_zero_budget():
@@ -156,6 +156,48 @@ def test_position_size_zero_budget():
     )
     assert qty == 0.0
     assert "예산" in reason
+
+
+# #388: 핫픽스 — 가용 예산 vs 실제 매수액에 buffer 반영
+def test_position_size_388_real_case_soxs():
+    """SOXS @ $9.63 + 가용 $647.88 → 70주 이상이면 자금 초과.
+    1.5% buffer 반영해서 약 66주 안전 수량 산출."""
+    qty, reason = calc_position_size(
+        available_budget=647.88,
+        current_price=9.63,
+        fractional=False,
+        params=KISStrategyParams(max_position_per_symbol_pct=100.0),
+    )
+    # safe_price = 9.63 × 1.015 = 9.77445
+    # 647.88 / 9.77445 = 66.28 → 66주
+    assert qty == 66.0
+    # 66주 × 9.77445 = $645 — KIS 한도 $647 안전 통과
+    actual_with_buffer = qty * 9.63 * 1.005
+    assert actual_with_buffer < 647.88, f"buffer 적용 후도 예산 초과: {actual_with_buffer}"
+
+
+def test_position_size_388_buffer_prevents_overflow():
+    """기존 버그: 가용 100 / 가격 10 → 10주 → 매수 시 100 × 1.005 = 101 초과.
+    핫픽스 후: 100 / (10 × 1.015) = 9.85 → 9주 → 9 × 10.05 = 90.45 안전."""
+    qty, _ = calc_position_size(
+        available_budget=100.0, current_price=10.0, fractional=False,
+        params=KISStrategyParams(max_position_per_symbol_pct=100.0),
+    )
+    assert qty == 9.0  # 10주 아님!
+    # buffer 적용 후 실제 주문가 확인
+    actual = qty * 10.0 * 1.005
+    assert actual <= 100.0, f"매수액 {actual} 가 예산 초과"
+
+
+def test_position_size_388_fractional_buffer():
+    """fractional 종목도 buffer 적용. budget 100, price 10 → 9.852주."""
+    qty, reason = calc_position_size(
+        available_budget=100.0, current_price=10.0, fractional=True,
+        params=KISStrategyParams(max_position_per_symbol_pct=100.0),
+    )
+    # 100 / (10 × 1.015) = 9.8522
+    assert 9.84 < qty < 9.86
+    assert "buffer" in reason
 
 
 def test_position_size_us_skip_when_dust():

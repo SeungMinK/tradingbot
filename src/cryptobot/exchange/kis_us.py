@@ -187,17 +187,21 @@ class KISUSExchange(Exchange):
         """자산별 잔고.
 
         Args:
-            asset: "USD"(외화예수금) / "KRW"(원화예수금) / 종목 ticker (예: "NVDA")
+            asset: "USD"(외화 주문가능액) / "KRW"(원화예수금) / 종목 ticker
 
-        USD/KRW 예수금은 inquire-present-balance API의 output2/output3에서 조회.
-        - output2: 통화별 외화 잔고 (USD 단위 frcr_dncl_amt_2)
-        - output3.tot_dncl_amt: 원화예수금 (KRW)
-        종목 보유는 inquire-balance API의 output1.
+        USD는 **출금가능금액**(frcr_drwg_psbl_amt_1)을 반환 — 미체결 주문에 묶인
+        매수 증거금(frcr_buy_mgn_amt) 제외 후 실질 매수 가능액. (#388 핫픽스)
+        과거 frcr_dncl_amt_2(외화예수금)는 묶인 금액 포함 → 매수 시 자금 초과 에러.
         """
         if asset == "USD":
             present = self._inquire_present_balance()
             for row in present.get("output2") or []:
                 if row.get("crcy_cd") == "USD":
+                    # #388: frcr_drwg_psbl_amt_1 = 외화 출금가능금액 (안전한 매수 한도)
+                    # fallback: frcr_dncl_amt_2 = 외화예수금 (구버전 호환)
+                    drwg = row.get("frcr_drwg_psbl_amt_1")
+                    if drwg is not None:
+                        return float(drwg)
                     return float(row.get("frcr_dncl_amt_2", 0))
             return 0.0
 
