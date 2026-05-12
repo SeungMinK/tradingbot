@@ -115,6 +115,10 @@ def calc_position_size(
     - 종목당 한도: 가용예산 × max_position_per_symbol_pct / 100
     - 한국주식(1주 단위): qty = floor(한도 / 가격). 0이면 skip
     - 미국주식(소수점): qty = 한도 / 가격 (소수점 4자리)
+
+    #388: KIS US는 시장가 미지원 → 지정가 +0.5% buffer로 주문하므로
+    실제 주문가는 current_price × 1.005. 거기에 슬리피지·환율 변동 흡수용
+    추가 1% safety margin → 가용예산 × 0.985 기준으로 수량 산정.
     """
     if available_budget <= 0:
         return 0.0, "가용 예산 없음"
@@ -123,18 +127,22 @@ def calc_position_size(
 
     target = available_budget * (params.max_position_per_symbol_pct / 100.0)
 
+    # #388: 지정가 buffer(0.5%) + 안전 마진(1%) = 1.5% 차감해서 수량 산정
+    # → KIS API "주문가능금액 초과" 에러 방지
+    safe_price = current_price * 1.015
+
     if not fractional:
-        qty = int(target // current_price)
+        qty = int(target // safe_price)
         if qty < 1:
             return 0.0, (
-                f"예산 부족 (한도 {target:,.0f} < 1주 가격 {current_price:,.0f})"
+                f"예산 부족 (한도 {target:,.0f} < 1주 가격 {current_price:,.0f} × 1.015 buffer)"
             )
-        return float(qty), f"{qty}주 (한도 {target:,.0f})"
+        return float(qty), f"{qty}주 (한도 {target:,.0f}, buffer 1.5%)"
 
-    qty = round(target / current_price, 4)
+    qty = round(target / safe_price, 4)
     if qty < 0.001:
         return 0.0, "수량 < 0.001 (소수점 한도)"
-    return qty, f"{qty:.4f}주 (한도 {target:,.2f})"
+    return qty, f"{qty:.4f}주 (한도 {target:,.2f}, buffer 1.5%)"
 
 
 def _calc_rsi(prices: pd.Series, period: int = 14) -> float | None:
