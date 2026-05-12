@@ -1422,9 +1422,60 @@ class Database:
             conn.execute("DROP TABLE IF EXISTS market_snapshots_old")
 
             conn.commit()
+
+            # #384: SQL 마이그레이션 자동 적용 (scripts/migrate_*.sql)
+            self._apply_pending_sql_migrations()
+
             logger.debug("데이터베이스 연결 준비 완료: %s", self._db_path)
         except sqlite3.Error as e:
             raise DatabaseError(f"데이터베이스 초기화 실패: {e}") from e
+
+    def _apply_pending_sql_migrations(self) -> None:
+        """#384: scripts/migrate_*.sql 미적용 파일 자동 실행 + 이력 기록.
+
+        실행 이력은 schema_migrations 테이블에서 추적 — 멱등성 보장.
+        파일은 정렬 순서 (사전순) 로 실행. 트랜잭션 단위.
+        """
+        import glob
+        import os
+
+        conn = self.connection
+        # 이력 테이블 (멱등)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                filename TEXT PRIMARY KEY,
+                applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+
+        # 프로젝트 루트의 scripts/ 폴더 위치 추정 (database.py로부터 ../../../scripts)
+        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        scripts_dir = os.path.join(repo_root, "scripts")
+        if not os.path.isdir(scripts_dir):
+            return  # 개발 환경 외 (단위 테스트 등)에선 폴더 없을 수 있음
+
+        applied = {
+            row[0] for row in conn.execute("SELECT filename FROM schema_migrations").fetchall()
+        }
+        files = sorted(glob.glob(os.path.join(scripts_dir, "migrate_*.sql")))
+        for path in files:
+            fname = os.path.basename(path)
+            if fname in applied:
+                continue
+            try:
+                with open(path, encoding="utf-8") as f:
+                    sql = f.read()
+                # executescript은 자체 트랜잭션 관리 → COMMIT 포함된 SQL도 안전
+                conn.executescript(sql)
+                conn.execute(
+                    "INSERT INTO schema_migrations (filename) VALUES (?)", (fname,)
+                )
+                conn.commit()
+                logger.info("자동 마이그레이션 적용: %s", fname)
+            except sqlite3.Error as e:
+                logger.error("자동 마이그레이션 실패 (%s) — 다음 시작 시 재시도: %s", fname, e)
+                # 다른 마이그레이션은 계속 시도 (실패한 것만 skip)
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         """SQL 실행 후 커서 반환."""

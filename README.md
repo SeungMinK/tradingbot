@@ -280,12 +280,22 @@ make start
 
 | 명령어 | 설명 |
 |---|---|
-| `make start` | 전체 실행 |
+| `make start` | 전체 실행 (포그라운드) |
+| `make daemon` | 백그라운드 실행 |
+| `make stop` / `make status` | 종료 / 상태 |
 | `make bot` | 트레이딩 봇 |
 | `make api` | API 서버 |
 | `make web` | Admin 개발 서버 |
 | `make news` | 뉴스 수집기 |
-| `make test` | 테스트 (101건) |
+| `make test` | 테스트 (660건) |
+
+### 업데이트
+
+```bash
+git pull && make daemon
+```
+
+`scripts/migrate_*.sql` 파일은 봇 시작 시 자동 적용됩니다 (#384). 별도 SQL 실행 불요.
 
 ---
 
