@@ -1,9 +1,14 @@
-"""볼린저밴드 + RSI 복합 전략.
+"""볼린저밴드 + RSI 복합 전략 (Swing 모드, #376).
 
 단일 지표보다 거짓 신호를 줄여 승률을 높이는 전략.
 매수: RSI 과매도 + 볼린저 하단 이탈 (두 조건 동시 충족)
-매도: RSI 정상 복귀 또는 볼린저 중간선 도달 (하나만 충족)
+매도 우선순위 (roi_table 우회, swing 패턴):
+1. 손절 -5% — 무조건
+2. 트레일링 (피크 -trailing_stop_pct) — net_pnl >= min_profit_for_trailing 통과 시만
+3. RSI 정상 복귀 — net_pnl >= min_profit_for_trailing 통과 시만
+4. BB 중간선 도달 — net_pnl >= min_profit_for_trailing 통과 시만
 
+학계 근거: BB+RSI 결합 정확도 87.5% (ResearchGate 2024), Liu/Tsyvinski 2022.
 벤치마크: 60%+ 승률, 시장의 ~34% 시간만 포지션 보유.
 """
 
@@ -11,9 +16,13 @@ import pandas as pd
 
 from cryptobot.strategies.base import BaseStrategy, Signal, StrategyInfo, StrategyParams
 
+# #376: swing 익절 가드 — 디폴트 +5% 미만 수익권에선 익절성 매도 안 함.
+# user 멘탈 모델 "저점 진입 → +5% 후 추세 보고 매도" 구현.
+MIN_PROFIT_FOR_TRAILING = 5.0
+
 
 class BBRSICombined(BaseStrategy):
-    """볼린저밴드 + RSI 복합 전략."""
+    """볼린저밴드 + RSI 복합 전략 (Swing 모드)."""
 
     def __init__(self, params: StrategyParams | None = None) -> None:
         super().__init__(params)
@@ -26,6 +35,10 @@ class BBRSICombined(BaseStrategy):
         # 기본 False (기존 엄격한 AND 동작 유지). LLM이 매매 0건 지속 시 True로 전환.
         self._allow_partial_signal = bool(self.params.extra.get("allow_partial_signal", False))
         self._partial_confidence = float(self.params.extra.get("partial_confidence", 0.4))
+        # #376: swing 익절 가드
+        self._min_profit_for_trailing = float(
+            self.params.extra.get("min_profit_for_trailing", MIN_PROFIT_FOR_TRAILING)
+        )
 
     def info(self) -> StrategyInfo:
         return StrategyInfo(
@@ -115,40 +128,79 @@ class BBRSICombined(BaseStrategy):
         return Signal("hold", 0.0, f"조건 미충족 (RSI={rsi:.0f})")
 
     def check_sell(self, df: pd.DataFrame, current_price: float, buy_price: float) -> Signal:
-        """매도: RSI > overbought OR 가격 > 볼린저 중간선."""
-        rsi = self._calc_rsi(df)
+        """매도 (Swing 모드, #376). roi_table 우회.
 
-        # 공통 손절/트레일링 체크 (RSI 전달 → 과매도 시 ROI 매도 보류)
-        stop_signal = self.check_trailing_stop(current_price, buy_price, current_rsi=rsi)
-        if stop_signal:
-            return stop_signal
+        우선순위:
+        1. 손절 (params.stop_loss_pct) — 무조건
+        2. 트레일링 (params.trailing_stop_pct) — net_pnl >= min_profit_for_trailing 가드 통과 시만
+        3. RSI 정상 복귀 — 가드 통과 시만
+        4. BB 중간선 도달 — 가드 통과 시만
 
-        bb = self._calc_bb(df)
+        가드 미달 익절성 매도는 hold로 → 큰 추세 끝까지 보유 (user 멘탈 모델).
+        """
+        # 피크 추적
+        if self._highest_price is None or current_price > self._highest_price:
+            self._highest_price = current_price
 
-        if rsi is None or bb is None:
-            return Signal("hold", 0.0, "데이터 부족")
+        pnl_pct = (current_price - buy_price) / buy_price * 100
+        net_pnl = self._net_pnl_pct(pnl_pct)
 
-        ma, upper, lower = bb
-        profit_pct = (current_price - buy_price) / buy_price * 100
-        net_pnl = self._net_pnl_pct(profit_pct)
-
-        # RSI 정상 복귀 → 전략적 매도 (수수료 무관, 알고리즘 판단 존중)
-        if rsi >= self._rsi_overbought:
+        # 1. 손절 (무조건, 가드 무시)
+        if pnl_pct <= self.params.stop_loss_pct:
             return Signal(
                 "sell",
-                0.7,
-                f"RSI({rsi:.0f}) 정상 복귀 (실질 {net_pnl:+.1f}%)",
-                trigger_value=round(rsi, 1),
+                1.0,
+                f"손절 {pnl_pct:.2f}%",
+                trigger_value=round(pnl_pct, 2),
+                is_profit_taking=False,
             )
 
-        # 볼린저 중간선 도달 → 익절 (실질 수익 있을 때만)
-        if current_price >= ma and net_pnl > 0:
+        # 2. 트레일링 (피크 갱신 후 -trailing_stop_pct 빠질 때) — +5% 가드 통과 시만
+        drop_pct = (current_price - self._highest_price) / self._highest_price * 100
+        if (
+            drop_pct <= self.params.trailing_stop_pct
+            and net_pnl >= self._min_profit_for_trailing
+        ):
             return Signal(
                 "sell",
-                0.6,
-                f"볼린저 중간선 도달 (실질 +{net_pnl:.1f}%)",
-                trigger_value=round(ma, 2),
+                0.8,
+                f"트레일링 (실질 {net_pnl:+.2f}%, ≥{self._min_profit_for_trailing}% 가드)",
+                trigger_value=round(drop_pct, 2),
                 is_profit_taking=True,
             )
 
-        return Signal("hold", 0.0, f"보유 유지 (RSI={rsi:.0f}, 실질 {net_pnl:+.1f}%)")
+        # 3. RSI 정상 복귀 (mean reversion 완료) — +5% 가드 통과 시만
+        rsi = self._calc_rsi(df) if df is not None else None
+        if (
+            rsi is not None
+            and rsi >= self._rsi_overbought
+            and net_pnl >= self._min_profit_for_trailing
+        ):
+            return Signal(
+                "sell",
+                0.7,
+                f"RSI({rsi:.0f}) 정상 복귀 (실질 {net_pnl:+.2f}%)",
+                trigger_value=round(rsi, 1),
+                is_profit_taking=True,
+            )
+
+        # 4. BB 중간선 도달 — +5% 가드 통과 시만
+        bb = self._calc_bb(df) if df is not None else None
+        if bb is not None:
+            ma, _upper, _lower = bb
+            if current_price >= ma and net_pnl >= self._min_profit_for_trailing:
+                return Signal(
+                    "sell",
+                    0.6,
+                    f"BB 중간선 익절 (실질 +{net_pnl:.2f}%)",
+                    trigger_value=round(ma, 2),
+                    is_profit_taking=True,
+                )
+
+        rsi_str = f"RSI={rsi:.0f}, " if rsi is not None else ""
+        return Signal(
+            "hold",
+            0.0,
+            f"보유 유지 ({rsi_str}실질 {net_pnl:+.2f}%, "
+            f"트레일링 가드 ≥{self._min_profit_for_trailing}%)",
+        )
