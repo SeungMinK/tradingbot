@@ -244,6 +244,12 @@ class KISUSBot:
         self._last_sell_at: dict[str, float] = {}  # 종목별 마지막 매도 timestamp (epoch)
         self._stop_loss_price_at_buy: dict[str, float] = {}  # #305 ORB 모드 OR_low 손절가
         self._pending_stop_loss: float | None = None  # #305 매수 직전 OR_low 임시
+        # #390: 자금 부족 종목별 cooldown — 한 번 자금 부족 발생 시 N분간 같은 종목 매수 시도 안 함
+        # 같은 에러 반복(176회) 방지 + Slack 알림 폭주 방지
+        self._insufficient_funds_cooldown: dict[str, float] = {}  # symbol -> 다음 시도 가능 epoch
+        self._insufficient_funds_cooldown_sec = int(
+            os.getenv("KIS_US_INSUFFICIENT_FUNDS_COOLDOWN_SEC", "300")  # 디폴트 5분
+        )
 
     def start(self) -> None:
         mode = "단타(데일리)" if self._params.day_trading_mode else "스윙"
@@ -543,22 +549,39 @@ class KISUSBot:
         return signal_, sl_price, tp_price, rps
 
     def _execute_buy_queue(self, candidates: list) -> None:
-        """매수 후보 신뢰도 정렬 후 순차 매수. 자금 부족하면 다음 후보 skip.
+        """매수 후보 신뢰도 정렬 후 순차 매수.
 
+        #390: 매수 직전 fresh 잔고 조회 + 자금 부족 종목 cooldown 적용.
         candidates 튜플: (symbol, price, sig, sl_price, tp_price, risk_per_share)
         Pure Zarattini 모드는 risk_per_share 기반 1% 사이징, 그 외엔 풀매수.
         """
+        # #390: 매수 직전 캐시 무효화 후 fresh 잔고 조회
+        # KIS settlement 지연 + 봇 캐시(60s)로 stale 잔고 위험 → 매번 fresh 호출
+        if hasattr(self._exchange, "invalidate_balance_cache"):
+            self._exchange.invalidate_balance_cache()
         try:
             budget_usd = self._exchange.get_balance("USD")
         except APIError as e:
             logger.warning("USD 예수금 조회 실패 — 매수 큐 스킵: %s", e)
             return
+        logger.info("[매수 큐] 가용 USD = $%.2f (출금가능액 기준)", budget_usd)
+
+        now_epoch = _time.time()
 
         for entry in candidates:
             symbol, price_usd, sig, sl_price, tp_price, rps = entry
             if budget_usd <= 0:
                 logger.info("USD 잔고 0 — 남은 후보 %d건 매수 스킵", len([c for c in candidates if c[0] != symbol]))
                 break
+
+            # #390: 자금 부족 cooldown 체크 — 5분 내 자금 부족 발생한 종목 skip
+            cd_until = self._insufficient_funds_cooldown.get(symbol, 0)
+            if cd_until > now_epoch:
+                remaining = int(cd_until - now_epoch)
+                logger.info(
+                    "%s 자금부족 cooldown 남은 %d초 — 매수 시도 skip", symbol, remaining,
+                )
+                continue
 
             is_fractional = symbol not in INTEGER_ONLY_TICKERS
 
@@ -586,15 +609,54 @@ class KISUSBot:
                 )
                 continue
 
+            # #390: 매수 직전 사전 검증 — qty × price × 1.015 (buffer) ≤ budget
+            estimated_cost = qty * price_usd * 1.015
+            if estimated_cost > budget_usd:
+                logger.warning(
+                    "%s 사전 검증 실패: 예상 매수액 $%.2f > 가용 $%.2f — 매수 큐 중단",
+                    symbol, estimated_cost, budget_usd,
+                )
+                self._mark_insufficient_funds(symbol, budget_usd, estimated_cost)
+                continue
+
             logger.info(
-                "[매수실행] %s conf=%.2f @ $%.2f — %s | %s",
+                "[매수실행] %s conf=%.2f @ $%.2f — %s | %s | 예상비용 $%.2f / 가용 $%.2f",
                 symbol, sig.confidence, price_usd, sig.reason, size_reason,
+                estimated_cost, budget_usd,
             )
             self._pending_stop_loss = sl_price
             self._pending_take_profit = tp_price
-            self._buy(symbol, qty, price_usd, sig.reason)
+            buy_success = self._buy(symbol, qty, price_usd, sig.reason)
+            if buy_success is False:
+                # 자금 부족 등 실패 시 cooldown 등록 (Slack 1회 알림)
+                self._mark_insufficient_funds(symbol, budget_usd, estimated_cost)
+                # 잔고 재조회 (다음 후보 계산 정확하게)
+                if hasattr(self._exchange, "invalidate_balance_cache"):
+                    self._exchange.invalidate_balance_cache()
+                try:
+                    budget_usd = self._exchange.get_balance("USD")
+                except APIError:
+                    break
+                continue
             cost = qty * price_usd
             budget_usd = max(0.0, budget_usd - cost)
+
+    def _mark_insufficient_funds(self, symbol: str, budget: float, cost: float) -> None:
+        """#390: 자금 부족 종목 cooldown 등록 + Slack 1회 알림."""
+        cd_sec = self._insufficient_funds_cooldown_sec
+        prev = self._insufficient_funds_cooldown.get(symbol, 0)
+        # 이미 cooldown 중이면 Slack 알림 안 함 (중복 방지)
+        already_cooldown = prev > _time.time()
+        self._insufficient_funds_cooldown[symbol] = _time.time() + cd_sec
+        if not already_cooldown and self._notifier and self._notifier.is_configured:
+            try:
+                self._notifier.notify_trade_message(
+                    f"⚠️ [KIS_US] {symbol} 매수 자금 부족 — "
+                    f"필요 ${cost:.2f} / 가용 ${budget:.2f} (부족 ${cost - budget:.2f}). "
+                    f"{cd_sec // 60}분 cooldown."
+                )
+            except Exception as e:
+                logger.warning("Slack 알림 실패: %s", e)
 
     def _evaluate_sell_with_price(self, symbol: str, price_usd: float) -> None:
         """#309: _evaluate_symbol 매도 분기 추출 (price 외부 주입)."""
