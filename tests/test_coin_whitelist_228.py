@@ -138,3 +138,73 @@ def test_empty_whitelist_returns_none(db):
     """빈 문자열 → None (화이트리스트 미사용 효과)."""
     mgr = _make_mgr(db, coin_whitelist="")
     assert mgr._get_whitelist() is None
+
+
+# ===================================================================
+# #378: 백테스트 검증 필터 통합
+# ===================================================================
+
+
+def _seed_backtest(db, coin: str, num_trades: int, avg_profit_pct: float, run_date: str = "2026-05-10"):
+    """backtest_results에 시드 (모든 NOT NULL 컬럼 채움)."""
+    db.execute(
+        "INSERT INTO backtest_results "
+        "(run_date, strategy_name, coin, period, num_trades, win_rate, "
+        " total_return_pct, max_drawdown_pct, sharpe_ratio, avg_profit_pct, "
+        " avg_loss_pct, best_trade_pct, worst_trade_pct, params_json) "
+        "VALUES (?, 'test', ?, '30d', ?, 60.0, 5.0, -3.0, 1.0, ?, -1.0, 5.0, -3.0, '{}')",
+        (run_date, coin, num_trades, avg_profit_pct),
+    )
+    db.commit()
+
+
+def test_backtest_filter_disabled_keeps_whitelist(db):
+    """coin_backtest_filter_enabled=False → 화이트리스트 그대로."""
+    _seed_backtest(db, "KRW-BTC", num_trades=5, avg_profit_pct=10.0)
+    mgr = _make_mgr(db, coin_backtest_filter_enabled="false")
+    wl = mgr._get_whitelist()
+    assert set(wl) == set(CoinManager.DEFAULT_WHITELIST)
+
+
+def test_backtest_filter_enabled_intersects_with_validated(db):
+    """필터 ON + 일부 코인만 백테스트 통과 → 화이트리스트 ∩ validated."""
+    _seed_backtest(db, "KRW-BTC", num_trades=5, avg_profit_pct=10.0)
+    _seed_backtest(db, "KRW-ETH", num_trades=4, avg_profit_pct=6.0)
+    # SOL은 통과 미달
+    _seed_backtest(db, "KRW-SOL", num_trades=2, avg_profit_pct=2.0)
+    mgr = _make_mgr(db, coin_backtest_filter_enabled="true")
+    wl = mgr._get_whitelist()
+    assert set(wl) == {"KRW-BTC", "KRW-ETH"}
+
+
+def test_backtest_filter_no_results_falls_back_to_whitelist(db):
+    """필터 ON + 백테스트 결과 없음 → 원본 화이트리스트 (안전 fallback)."""
+    mgr = _make_mgr(db, coin_backtest_filter_enabled="true")
+    wl = mgr._get_whitelist()
+    # 백테스트 결과 없으면 filter_coins가 원본 그대로 반환
+    assert set(wl) == set(CoinManager.DEFAULT_WHITELIST)
+
+
+def test_backtest_filter_empty_intersection_returns_default_whitelist(db):
+    """필터 ON + 통과 코인이 있지만 화이트리스트와 겹치지 않으면 디폴트 유지."""
+    _seed_backtest(db, "KRW-BIO", num_trades=5, avg_profit_pct=10.0)
+    mgr = _make_mgr(
+        db,
+        coin_backtest_filter_enabled="true",
+        coin_whitelist="KRW-BTC,KRW-ETH",  # BIO는 화이트리스트 밖
+    )
+    wl = mgr._get_whitelist()
+    # 교집합 ∅ → DEFAULT_WHITELIST 유지 (안전)
+    assert set(wl) == set(CoinManager.DEFAULT_WHITELIST)
+
+
+def test_backtest_filter_custom_thresholds(db):
+    """coin_backtest_min_avg_profit / coin_backtest_min_trades 커스텀."""
+    _seed_backtest(db, "KRW-BTC", num_trades=5, avg_profit_pct=4.0)  # 디폴트 5% 미달, 3% 통과
+    mgr = _make_mgr(
+        db,
+        coin_backtest_filter_enabled="true",
+        coin_backtest_min_avg_profit="3.0",
+    )
+    wl = mgr._get_whitelist()
+    assert "KRW-BTC" in wl

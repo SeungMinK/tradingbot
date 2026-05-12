@@ -708,6 +708,31 @@ _DEFAULT_BOT_CONFIG = [
         "display_name": "화이트리스트 코인 (CSV)",
         "description": "화이트리스트 모드에서 매매 허용 코인. T1: BTC/ETH/XRP/SOL, T2: ADA/DOGE/AVAX/LINK. 백테스트 +10.94%.",
     },
+    # #378: 백테스트 검증 필터 — 화이트리스트 ∩ (avg_profit≥X% AND num_trades≥N)
+    {
+        "key": "coin_backtest_filter_enabled",
+        "value": "false",
+        "value_type": "bool",
+        "category": "coin",
+        "display_name": "백테스트 검증 필터",
+        "description": "ON: 화이트리스트 ∩ 백테스트 통과 코인만 매수. 미검증 종목 손실(NEWT 등) 차단.",
+    },
+    {
+        "key": "coin_backtest_min_avg_profit",
+        "value": "5.0",
+        "value_type": "float",
+        "category": "coin",
+        "display_name": "백테스트 최소 평균 익절 (%)",
+        "description": "백테스트 결과 avg_profit_pct가 이 값 이상인 코인만 통과. 기본 5%.",
+    },
+    {
+        "key": "coin_backtest_min_trades",
+        "value": "3",
+        "value_type": "int",
+        "category": "coin",
+        "display_name": "백테스트 최소 거래 건수",
+        "description": "백테스트 결과 num_trades가 이 값 이상인 코인만 통과. 표본 부족 코인 제외.",
+    },
     {
         "key": "min_volume_krw",
         "value": "1000000000",
