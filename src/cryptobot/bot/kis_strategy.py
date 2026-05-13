@@ -50,6 +50,11 @@ class KISBuySignal:
     take_profit_price: float | None = None
     # #364 Pure Zarattini Bar-1: 1% 리스크 사이징용 risk_per_share (= |entry − stop|)
     risk_per_share: float | None = None
+    # #396: 시그널 발생 시점의 entry 가격 (bar1 close). 매수 직전 갭 가드 비교용.
+    signal_price: float | None = None
+    # #396: bar1 패턴 ("bullish" / "bearish" / "doji" / None). 일일 history 기록용.
+    bar1_pattern: str | None = None
+    bar1_body_pct: float | None = None
 
 
 @dataclass
@@ -425,6 +430,8 @@ def evaluate_zarattini_3x_atr(
         return KISBuySignal(
             False,
             f"Bar-1 도지 (몸통 {body_pct:.3f}% < {params.doji_threshold_pct}% — 매매 X)",
+            bar1_pattern="doji",
+            bar1_body_pct=body_pct,
         )
 
     # 음봉 — 인버스 ETF는 별도 호출
@@ -432,6 +439,8 @@ def evaluate_zarattini_3x_atr(
         return KISBuySignal(
             False,
             f"Bar-1 음봉 ${c:.2f} < ${o:.2f} — 이 종목 매수 X (인버스 ETF 별도 평가)",
+            bar1_pattern="bearish",
+            bar1_body_pct=body_pct,
         )
 
     # 양봉 — ATR 손절 계산
@@ -440,6 +449,8 @@ def evaluate_zarattini_3x_atr(
         return KISBuySignal(
             False,
             f"ATR({params.atr_period}d) 계산 불가 — 일봉 데이터 부족 ({len(df_daily) if df_daily is not None else 0}봉)",
+            bar1_pattern="bullish",
+            bar1_body_pct=body_pct,
         )
 
     entry = c  # 첫 봉 close ≈ 둘째 봉 open (실 체결가는 주문 시 결정)
@@ -449,6 +460,8 @@ def evaluate_zarattini_3x_atr(
         return KISBuySignal(
             False,
             f"ATR 손절 계산 이상 (entry ${entry:.2f}, ATR ${atr:.2f}, stop_dist ${stop_distance:.4f})",
+            bar1_pattern="bullish",
+            bar1_body_pct=body_pct,
         )
 
     # 신뢰도: 양봉 몸통 + ATR 대비 진입가 (정성적)
@@ -461,6 +474,9 @@ def evaluate_zarattini_3x_atr(
         f"{params.atr_stop_pct}% × ATR) | TP 없음 (EOD까지)",
         confidence=max(conf, 0.3),
         stop_loss_price=stop,
+        signal_price=entry,  # #396: 갭 가드 비교용
+        bar1_pattern="bullish",
+        bar1_body_pct=body_pct,
         take_profit_price=None,  # 3X 변형: TP 없음, EOD가 익절
         risk_per_share=stop_distance,
     )

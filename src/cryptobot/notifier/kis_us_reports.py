@@ -285,6 +285,82 @@ def calc_today_pnl(db, symbol_filter: str = "kis_us") -> tuple[float, list[dict]
     return pnl_total, trades_summary
 
 
+# === #396: 일일 매매 history 기록 ===
+
+
+def _ny_today_str() -> str:
+    """오늘 NY 거래일 'YYYY-MM-DD'."""
+    return _now_ny().strftime("%Y-%m-%d")
+
+
+def record_daily_history(
+    db,
+    ticker: str,
+    bar1_pattern: str | None = None,
+    bar1_body_pct: float | None = None,
+    signal_price: float | None = None,
+    bought: bool = False,
+    buy_price: float | None = None,
+    qty: float | None = None,
+    skip_reason: str | None = None,
+) -> None:
+    """매수 시도 시점에 history 기록 (UPSERT).
+
+    매수 안 한 경우 (도지/음봉/갭가드/자금부족) skip_reason 기록.
+    매도는 update_daily_history_sell() 로 별도.
+    """
+    today = _ny_today_str()
+    db.execute(
+        """
+        INSERT INTO kis_us_daily_history
+            (trade_date, ticker, bar1_pattern, bar1_body_pct, signal_price,
+             bought, buy_price, qty, skip_reason, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(trade_date, ticker) DO UPDATE SET
+            bar1_pattern = excluded.bar1_pattern,
+            bar1_body_pct = excluded.bar1_body_pct,
+            signal_price = excluded.signal_price,
+            bought = MAX(kis_us_daily_history.bought, excluded.bought),
+            buy_price = COALESCE(excluded.buy_price, kis_us_daily_history.buy_price),
+            qty = COALESCE(excluded.qty, kis_us_daily_history.qty),
+            skip_reason = COALESCE(excluded.skip_reason, kis_us_daily_history.skip_reason),
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (
+            today, ticker, bar1_pattern, bar1_body_pct, signal_price,
+            1 if bought else 0,
+            buy_price, qty, skip_reason,
+        ),
+    )
+    db.commit()
+
+
+def update_daily_history_sell(
+    db,
+    ticker: str,
+    sell_price: float,
+    pnl_usd: float,
+    pnl_pct: float,
+    sell_type: str,  # "stop_loss" / "eod_profit" / "eod_loss"
+) -> None:
+    """매도 발생 시 history 업데이트."""
+    today = _ny_today_str()
+    db.execute(
+        """
+        UPDATE kis_us_daily_history
+        SET sold = 1,
+            sell_price = ?,
+            pnl_usd = ?,
+            pnl_pct = ?,
+            sell_type = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE trade_date = ? AND ticker = ?
+        """,
+        (sell_price, pnl_usd, pnl_pct, sell_type, today, ticker),
+    )
+    db.commit()
+
+
 def calc_period_pnl(db, days: int, symbol_filter: str = "kis_us") -> tuple[float, int]:
     """최근 N일 손익 + 매매일 수."""
     from datetime import timedelta, timezone
