@@ -283,6 +283,10 @@ class KISUSBot:
         # 같은 에러 반복(176회) 방지 + Slack 알림 폭주 방지
         self._insufficient_funds_cooldown: dict[str, float] = {}  # symbol -> 다음 시도 가능 epoch
         self._insufficient_funds_cooldown_sec = INSUFFICIENT_FUNDS_COOLDOWN_SEC
+        # #393: Slack 통합 보고 — 장 시작/일일 결산 1회 가드 (NY 날짜별)
+        self._market_open_sent_date: str | None = None  # NY date "YYYY-MM-DD"
+        self._daily_summary_sent_date: str | None = None
+        self._usd_start_of_day: float | None = None  # 장 시작 시점 USD 잔고 (일일 손익 계산용)
 
     def start(self) -> None:
         mode = "단타(데일리)" if self._params.day_trading_mode else "스윙"
@@ -337,6 +341,9 @@ class KISUSBot:
 
     def _tick(self) -> None:
         self._tick_count += 1
+        #393: 장 시작 / 일일 결산 트리거 (시장 상태 무관)
+        self._maybe_send_market_open()
+        self._maybe_send_daily_summary()
         if not self._is_trading_enabled():
             logger.debug("kis_us 거래 DB에서 비활성. 스킵")
             return
@@ -697,6 +704,99 @@ class KISUSBot:
             cost = qty * price_usd
             budget_usd = max(0.0, budget_usd - cost)
 
+    def _maybe_send_market_open(self) -> None:
+        """#393: NY 09:30 직후 1회 장 시작 알림."""
+        ny_now = datetime.now(NY)
+        if ny_now.weekday() >= 5:
+            return  # 주말
+        # 09:30~09:32 사이만 (3분 윈도우)
+        if not (ny_now.hour == 9 and 30 <= ny_now.minute <= 32):
+            return
+        today = ny_now.strftime("%Y-%m-%d")
+        if self._market_open_sent_date == today:
+            return
+        if not (self._notifier and self._notifier.is_configured):
+            self._market_open_sent_date = today
+            return
+        try:
+            from cryptobot.notifier.kis_us_reports import format_market_open
+
+            usd = self._exchange.get_balance("USD")
+            try:
+                fx = self._exchange.get_fx_rate_krw_per_usd()
+            except Exception:
+                fx = 1400.0
+            msg = format_market_open(
+                universe=list(self._universe),
+                usd_available=usd,
+                fx_krw_per_usd=fx,
+            )
+            self._notifier.notify_trade_message(msg)
+            self._usd_start_of_day = usd
+            self._market_open_sent_date = today
+            logger.info("[Slack] 장 시작 알림 발송 (%s)", today)
+        except Exception as e:
+            logger.warning("장 시작 알림 실패: %s", e)
+
+    def _maybe_send_daily_summary(self) -> None:
+        """#393: NY 16:05 ~ 16:10 사이 1회 일일 결산."""
+        ny_now = datetime.now(NY)
+        if ny_now.weekday() >= 5:
+            return
+        # 16:05~16:10 윈도우 (마감 5~10분 후)
+        if not (ny_now.hour == 16 and 5 <= ny_now.minute <= 10):
+            return
+        today = ny_now.strftime("%Y-%m-%d")
+        if self._daily_summary_sent_date == today:
+            return
+        if not (self._notifier and self._notifier.is_configured):
+            self._daily_summary_sent_date = today
+            return
+        try:
+            from cryptobot.notifier.kis_us_reports import (
+                calc_period_pnl,
+                calc_today_pnl,
+                format_daily_summary,
+            )
+
+            today_pnl, today_trades = calc_today_pnl(self._db)
+            week_pnl, week_days = calc_period_pnl(self._db, days=7)
+            month_pnl, _ = calc_period_pnl(self._db, days=30)
+            total_pnl, _ = calc_period_pnl(self._db, days=3650)  # 10년 = 사실상 전체
+
+            usd_now = self._exchange.get_balance("USD")
+            usd_start = self._usd_start_of_day if self._usd_start_of_day is not None else usd_now - today_pnl
+
+            # 매매 없는 날 → skip 사유 수집
+            skip_reasons: dict[str, str] = {}
+            if not today_trades:
+                # 가장 최근 evaluation을 종목별로 1건씩
+                for symbol in self._universe:
+                    row = self._db.execute(
+                        "SELECT reason FROM kis_us_evaluations "
+                        "WHERE ticker = ? AND evaluated_at >= date('now', '-1 day') "
+                        "ORDER BY id DESC LIMIT 1",
+                        (symbol,),
+                    ).fetchone()
+                    if row:
+                        skip_reasons[symbol] = (dict(row).get("reason") or "")[:60]
+
+            msg = format_daily_summary(
+                today_trades=today_trades,
+                skip_reasons=skip_reasons,
+                usd_now=usd_now,
+                usd_start_of_day=usd_start,
+                week_pnl_usd=week_pnl,
+                week_trade_days=week_days,
+                month_pnl_usd=month_pnl,
+                total_pnl_usd=total_pnl if abs(total_pnl) > 0.01 else None,
+            )
+            self._notifier.notify_trade_message(msg)
+            self._daily_summary_sent_date = today
+            logger.info("[Slack] 일일 결산 발송 (%s, 매매 %d건)", today, len(today_trades))
+        except Exception as e:
+            logger.exception("일일 결산 알림 실패: %s", e)
+
     def _mark_insufficient_funds(self, symbol: str, budget: float, cost: float) -> None:
         """#390: 자금 부족 종목 cooldown 등록 + Slack 1회 알림."""
         cd_sec = self._insufficient_funds_cooldown_sec
@@ -763,8 +863,25 @@ class KISUSBot:
             order_uuid=result.order_uuid,
         )
         if self._notifier.is_configured:
+            #393: 통합 보고 포맷
+            from cryptobot.notifier.kis_us_reports import format_buy
+
+            try:
+                budget = self._exchange.get_balance("USD")
+            except Exception:
+                budget = None
+            stop = self._stop_loss_price_at_buy.get(symbol)
+            risk = abs(stop - result.price) * result.amount if stop else None
             self._notifier.notify_trade_message(
-                f"[KIS_US][매수] {symbol} {result.amount:.4f}주 @ ${result.price:.2f} — {reason}"
+                format_buy(
+                    symbol=symbol,
+                    qty=result.amount,
+                    price=result.price,
+                    signal_reason=reason,
+                    stop_loss_price=stop,
+                    risk_usd=risk,
+                    account_usd=budget,
+                )
             )
 
     def _sell(self, symbol: str, reason: str, pnl_pct: float) -> None:
@@ -791,8 +908,41 @@ class KISUSBot:
             order_uuid=result.order_uuid,
         )
         if self._notifier.is_configured:
+            #393: 통합 보고 포맷 — 손절/EOD 익절/EOD 손실 분기
+            from cryptobot.notifier.kis_us_reports import format_sell
+
+            # sell_type 분류
+            reason_lower = (reason or "").lower()
+            is_eod = "day_trading_close" in reason_lower or "eod" in reason_lower or "강제" in (reason or "")
+            if is_eod:
+                sell_type = "eod_profit" if pnl_pct > 0 else "eod_loss"
+            else:
+                sell_type = "stop_loss"
+            # 보유 시간 추정 (last_buy_price 기준, 정확도 낮으나 표시용)
+            hold_min = 0
+            try:
+                buy_row = self._db.execute(
+                    "SELECT timestamp FROM trades WHERE market='kis_us' AND coin=? AND side='buy' "
+                    "ORDER BY id DESC LIMIT 1",
+                    (symbol,),
+                ).fetchone()
+                if buy_row:
+                    from datetime import datetime as _dt
+                    buy_t = _dt.strptime(dict(buy_row)["timestamp"], "%Y-%m-%d %H:%M:%S")
+                    hold_min = int((_dt.utcnow() - buy_t).total_seconds() / 60)
+            except Exception:
+                pass
+            pnl_usd = result.amount * (result.price - (self._last_buy_price.get(symbol, result.price)))
             self._notifier.notify_trade_message(
-                f"[KIS_US][매도] {symbol} {result.amount:.4f}주 @ ${result.price:.2f} ({pnl_pct:+.2f}%) — {reason}"
+                format_sell(
+                    symbol=symbol,
+                    qty=result.amount,
+                    price=result.price,
+                    pnl_pct=pnl_pct,
+                    pnl_usd=pnl_usd,
+                    hold_minutes=hold_min,
+                    sell_type=sell_type,
+                )
             )
         self._last_buy_price.pop(symbol, None)
         self._highest_since_buy.pop(symbol, None)
