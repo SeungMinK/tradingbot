@@ -287,6 +287,9 @@ class KISUSBot:
         self._market_open_sent_date: str | None = None  # NY date "YYYY-MM-DD"
         self._daily_summary_sent_date: str | None = None
         self._usd_start_of_day: float | None = None  # 장 시작 시점 USD 잔고 (일일 손익 계산용)
+        # #395: 에러 알림 cooldown — 같은 에러 폭주 방지 (5분 1회만)
+        self._error_alert_last_sent: dict[str, float] = {}  # signature -> epoch
+        self._error_alert_cooldown_sec = 300
 
     def start(self) -> None:
         mode = "단타(데일리)" if self._params.day_trading_mode else "스윙"
@@ -325,10 +328,44 @@ class KISUSBot:
             try:
                 self._tick()
             except Exception as e:
+                #395: 매수 시그널 떴는데 코드 버그로 실패 시 명확한 Slack 알림 + cooldown
                 logger.exception("틱 처리 중 예외: %s", e)
-                if self._notifier.is_configured:
-                    self._notifier.notify_error(f"[KIS_US] 틱 예외: {e}")
+                self._notify_error_throttled(e)
             time.sleep(self._tick_interval_sec)
+
+    def _notify_error_throttled(self, exc: Exception) -> None:
+        """#395: 봇 에러 Slack 알림 — 같은 에러 5분 cooldown으로 폭주 방지.
+
+        매수 시그널 떴는데 코드 버그/API 에러로 매수 못 한 케이스를 명확히 알림.
+        같은 에러 매분 발생 시 1회만 발송 (Slack rate limit + 사용자 알람 폭주 방지).
+        """
+        if not self._notifier or not self._notifier.is_configured:
+            return
+        import traceback as _tb
+
+        sig = f"{type(exc).__name__}:{str(exc)[:80]}"
+        now_epoch = time.time()
+        last = self._error_alert_last_sent.get(sig, 0.0)
+        if now_epoch - last < self._error_alert_cooldown_sec:
+            return  # cooldown 중 — 로그만, Slack 안 보냄
+        self._error_alert_last_sent[sig] = now_epoch
+
+        tb_short = _tb.format_exc()[-400:] if _tb.format_exc() else ""
+        msg = (
+            f"🚨 *KIS US 봇 에러 — 매수 실행 차단 가능*\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"❌ `{type(exc).__name__}`: {str(exc)[:200]}\n"
+            f"\n"
+            f"⚠️ 매수 시그널 떠도 이 에러로 봇이 매수 못 할 수 있음.\n"
+            f"🔧 즉시 로그 확인 + 핫픽스 필요.\n"
+            f"\n"
+            f"```{tb_short}```\n"
+            f"_5분 cooldown — 같은 에러 반복돼도 추가 알림 X_"
+        )
+        try:
+            self._notifier.notify_trade_message(msg)
+        except Exception as e:
+            logger.warning("에러 Slack 알림 실패: %s", e)
 
     def _is_trading_enabled(self) -> bool:
         """DB bot_config.kis_us_trading_enabled 체크. 없으면 디폴트 enabled."""
