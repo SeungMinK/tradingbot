@@ -629,7 +629,7 @@ class KISUSBot:
             return
         logger.info("[매수 큐] 가용 USD = $%.2f (출금가능액 기준)", budget_usd)
 
-        now_epoch = _time.time()
+        now_epoch = time.time()
 
         for entry in candidates:
             symbol, price_usd, sig, sl_price, tp_price, rps = entry
@@ -802,8 +802,8 @@ class KISUSBot:
         cd_sec = self._insufficient_funds_cooldown_sec
         prev = self._insufficient_funds_cooldown.get(symbol, 0)
         # 이미 cooldown 중이면 Slack 알림 안 함 (중복 방지)
-        already_cooldown = prev > _time.time()
-        self._insufficient_funds_cooldown[symbol] = _time.time() + cd_sec
+        already_cooldown = prev > time.time()
+        self._insufficient_funds_cooldown[symbol] = time.time() + cd_sec
         if not already_cooldown and self._notifier and self._notifier.is_configured:
             try:
                 self._notifier.notify_trade_message(
