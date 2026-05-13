@@ -236,63 +236,53 @@ def test_parse_universe_default(monkeypatch):
     assert _parse_universe() == list(DEFAULT_US_UNIVERSE)
 
 
-def test_parse_universe_from_env(monkeypatch):
-    from cryptobot.entrypoints.run_kis_us import _parse_universe
-
-    monkeypatch.setenv("KIS_US_UNIVERSE", "snxx, sndk ,nvda")
-    assert _parse_universe() == ["SNXX", "SNDK", "NVDA"]
-
-
-def test_parse_universe_empty_falls_back_to_default(monkeypatch):
+def test_parse_universe_falls_back_to_default(monkeypatch):
+    """#392: env KIS_US_UNIVERSE 제거 후 — DB 없으면 항상 DEFAULT 폴백."""
     from cryptobot.entrypoints.run_kis_us import DEFAULT_US_UNIVERSE, _parse_universe
 
-    monkeypatch.setenv("KIS_US_UNIVERSE", "   ")
+    # 어떤 env 값이든 코드 상수 fallback (DEFAULT_US_UNIVERSE)
     assert _parse_universe() == list(DEFAULT_US_UNIVERSE)
 
 
-def test_build_params_position_cap_is_100_pct_full(monkeypatch):
+def test_parse_universe_env_ignored(monkeypatch):
+    """#392: KIS_US_UNIVERSE env 더 이상 읽지 않음."""
+    from cryptobot.entrypoints.run_kis_us import DEFAULT_US_UNIVERSE, _parse_universe
+
+    monkeypatch.setenv("KIS_US_UNIVERSE", "snxx, sndk ,nvda")
+    # env 무시 → DEFAULT fallback
+    assert _parse_universe() == list(DEFAULT_US_UNIVERSE)
+
+
+def test_build_params_position_cap_is_100_pct_full():
     """#309: 종목당 한도 항상 100% (풀매수). 여러 종목은 신뢰도 정렬로 순차 매수."""
     from cryptobot.entrypoints.run_kis_us import _build_params
 
-    monkeypatch.delenv("KIS_US_DAY_TRADING", raising=False)
     assert _build_params(universe_size=1).max_position_per_symbol_pct == 100.0
     assert _build_params(universe_size=4).max_position_per_symbol_pct == 100.0
     assert _build_params(universe_size=20).max_position_per_symbol_pct == 100.0
 
 
 def test_build_params_day_trading_toggle(monkeypatch):
+    """#392: DAY_TRADING_MODE 상수 변경으로 모드 토글."""
+    import cryptobot.entrypoints.run_kis_us as mod
     from cryptobot.entrypoints.run_kis_us import _build_params
 
-    monkeypatch.setenv("KIS_US_DAY_TRADING", "true")
+    monkeypatch.setattr(mod, "DAY_TRADING_MODE", True)
     p = _build_params(universe_size=2)
     assert p.day_trading_mode is True
 
-    monkeypatch.setenv("KIS_US_DAY_TRADING", "false")
+    monkeypatch.setattr(mod, "DAY_TRADING_MODE", False)
     p2 = _build_params(universe_size=2)
     assert p2.day_trading_mode is False
 
 
-def test_build_params_thresholds_overridable(monkeypatch):
-    from cryptobot.entrypoints.run_kis_us import _build_params
-
-    monkeypatch.setenv("KIS_US_TAKE_PROFIT_PCT", "20")
-    monkeypatch.setenv("KIS_US_STOP_LOSS_PCT", "-5")
-    monkeypatch.setenv("KIS_US_TRAILING_PCT", "-1.5")
-    p = _build_params(universe_size=5)
-    assert p.take_profit_pct == 20.0
-    assert p.stop_loss_pct == -5.0
-    assert p.trailing_stop_pct == -1.5
-
-
 def test_build_params_day_trading_mean_reversion_thresholds(monkeypatch):
     """단타모드 + mean_reversion: TP +4 / SL -4 / TR -2 (#301)."""
+    import cryptobot.entrypoints.run_kis_us as mod
     from cryptobot.entrypoints.run_kis_us import _build_params
 
-    monkeypatch.delenv("KIS_US_TAKE_PROFIT_PCT", raising=False)
-    monkeypatch.delenv("KIS_US_STOP_LOSS_PCT", raising=False)
-    monkeypatch.delenv("KIS_US_TRAILING_PCT", raising=False)
-    monkeypatch.setenv("KIS_US_DAY_TRADING", "true")
-    monkeypatch.setenv("KIS_US_STRATEGY", "mean_reversion")
+    monkeypatch.setattr(mod, "DAY_TRADING_MODE", True)
+    monkeypatch.setattr(mod, "STRATEGY", "mean_reversion")
     p = _build_params(universe_size=1)
     assert p.day_trading_mode is True
     assert p.take_profit_pct == 4.0
@@ -301,18 +291,34 @@ def test_build_params_day_trading_mean_reversion_thresholds(monkeypatch):
 
 
 def test_build_params_swing_thresholds_default(monkeypatch):
-    """스윙(디폴트) 모드는 보수 견딤 임계값."""
+    """스윙 모드: TP +10 / SL -10 / TR -3."""
+    import cryptobot.entrypoints.run_kis_us as mod
     from cryptobot.entrypoints.run_kis_us import _build_params
 
-    monkeypatch.delenv("KIS_US_TAKE_PROFIT_PCT", raising=False)
-    monkeypatch.delenv("KIS_US_STOP_LOSS_PCT", raising=False)
-    monkeypatch.delenv("KIS_US_TRAILING_PCT", raising=False)
-    monkeypatch.setenv("KIS_US_DAY_TRADING", "false")
+    monkeypatch.setattr(mod, "DAY_TRADING_MODE", False)
+    monkeypatch.setattr(mod, "STRATEGY", "mean_reversion")
     p = _build_params(universe_size=20)
     assert p.day_trading_mode is False
     assert p.take_profit_pct == 10.0
     assert p.stop_loss_pct == -10.0
     assert p.trailing_stop_pct == -3.0
+
+
+def test_build_params_zarattini_3x_atr_paper_defaults(monkeypatch):
+    """#392 + #364: zarattini_3x_atr 논문 디폴트 파라미터."""
+    import cryptobot.entrypoints.run_kis_us as mod
+    from cryptobot.entrypoints.run_kis_us import _build_params
+
+    monkeypatch.setattr(mod, "DAY_TRADING_MODE", True)
+    monkeypatch.setattr(mod, "STRATEGY", "zarattini_3x_atr")
+    p = _build_params(universe_size=2)
+    assert p.day_trading_mode is True
+    assert p.atr_stop_pct == 5.0  # 논문: 0.05 × ATR(14)
+    assert p.atr_period == 14
+    assert p.doji_threshold_pct == 0.05
+    assert p.risk_pct_per_trade == 1.0
+    assert p.r_multiple_target == 10.0
+    assert p.orb_minutes == 5  # 논문: 첫 5분봉
 
 
 # ---- DB 기반 거래 토글 (#285) ----
@@ -533,21 +539,18 @@ def test_evaluate_sell_orb_no_trigger_when_above_or_low():
 
 
 def test_breakout_paper_mode_thresholds(monkeypatch):
-    """단타 + breakout 모드 디폴트: TP 무한대, TR 끔, ORB 5분."""
+    """#392: 단타 + breakout 모드 디폴트 (코드 상수)."""
+    import cryptobot.entrypoints.run_kis_us as mod
     from cryptobot.entrypoints.run_kis_us import _build_params
 
-    monkeypatch.delenv("KIS_US_TAKE_PROFIT_PCT", raising=False)
-    monkeypatch.delenv("KIS_US_STOP_LOSS_PCT", raising=False)
-    monkeypatch.delenv("KIS_US_TRAILING_PCT", raising=False)
-    monkeypatch.delenv("KIS_US_ORB_MINUTES", raising=False)
-    monkeypatch.setenv("KIS_US_DAY_TRADING", "true")
-    monkeypatch.setenv("KIS_US_STRATEGY", "breakout")
+    monkeypatch.setattr(mod, "DAY_TRADING_MODE", True)
+    monkeypatch.setattr(mod, "STRATEGY", "breakout")
     p = _build_params(universe_size=1)
-    assert p.take_profit_pct == 999.0   # 사실상 무한 (EOD 청산 처리)
-    assert p.stop_loss_pct == -4.0      # 폴백
-    assert p.trailing_stop_pct == -99.0 # 사실상 끔
-    assert p.orb_minutes == 5           # 논문 5분 ORB
-    assert p.max_position_per_symbol_pct == 100.0  # #309 풀매수
+    assert p.take_profit_pct == 999.0
+    assert p.stop_loss_pct == -4.0
+    assert p.trailing_stop_pct == -99.0
+    assert p.orb_minutes == 5
+    assert p.max_position_per_symbol_pct == 100.0
 
 
 def test_buy_queue_sorts_by_confidence_desc():

@@ -14,25 +14,19 @@ USD 기반 거래:
 - 종목당 한도: 100% / N (N=풀 종목 수, 자동)
 - 단타모드: 마감 30분 전 매수 금지, 10분 전 강제 청산
 
-환경변수:
-- KIS_US_ENABLED=true/false (기본 true)
-- KIS_US_UNIVERSE=SNXX,SNDK,NVDA (콤마 구분, 기본 = DEFAULT_US_UNIVERSE)
-- KIS_US_DAY_TRADING=true/false (기본 false)
-- KIS_US_TAKE_PROFIT_PCT, KIS_US_STOP_LOSS_PCT, KIS_US_TRAILING_PCT (선택)
-- KIS_US_REBUY_COOLDOWN_SEC (기본 0 = 없음). 매도 후 같은 종목 재매수까지 최소 초.
-  단타 노이즈 매매 회피용. 0이면 다음 틱부터 즉시 재매수 가능.
-- KIS_US_TICK_INTERVAL_SEC (기본 30). 봇 폴링 주기. 단타는 빠른 반응(30초)이 적절.
-  너무 짧으면(<15초) KIS rate limit 우려.
-- KIS_US_OHLCV_INTERVAL (기본: 단타+breakout→"5min", 단타+meanrev→"15min", 스윙→"day").
-  RSI/MA/ORB/VWAP 계산용 봉 단위. ORB 5분봉 표준.
-- KIS_US_STRATEGY (기본: 단타→"breakout", 스윙→"mean_reversion").
-  - "breakout": VWAP + ORB(30분) + 거래량 spike (#303). 강세장 추세 추종.
-  - "mean_reversion": RSI≤35 + 가격<MA20 (#279). 횡보장 반등 잡기.
+env (시크릿 + 토글만):
+- KIS_APP_KEY / KIS_APP_SECRET / KIS_ACCOUNT_NUMBER / KIS_ACCOUNT_PRODUCT_CODE
+- KIS_IS_PAPER (모의투자 토글)
+- KIS_US_ENABLED (마켓 토글)
+
+운영 파라미터 (#392, 코드 상수로 통합):
+- 모듈 상단 "KIS US 운영 파라미터" 블록 참고 (TICK_INTERVAL_SEC, STRATEGY, ATR_STOP_PCT 등)
+- 종목 풀은 DB 우선 (kis_us_symbols 테이블), fallback DEFAULT_US_UNIVERSE
 
 사용법:
     python -m cryptobot.entrypoints.run_kis_us
 
-Related: #247, #279, #285
+Related: #247, #279, #285, #392
 """
 
 from __future__ import annotations
@@ -82,7 +76,7 @@ ZARATTINI_PAIRS = {
 }
 
 # 디폴트 풀 (#285): 빅테크/반도체/레버리지/크립토/EV/AI 분산
-# env KIS_US_UNIVERSE 로 오버라이드 가능
+# 종목 풀 fallback — DB 없거나 env 미지정 시
 DEFAULT_US_UNIVERSE = [
     "AAPL", "MSFT", "GOOGL", "AMZN", "META",          # 빅테크
     "NVDA", "AMD", "TSM", "AVGO", "ASML",             # 반도체
@@ -92,7 +86,63 @@ DEFAULT_US_UNIVERSE = [
     "PLTR", "ARM", "NFLX",                             # AI/소프트웨어
 ]
 
-DEFAULT_TICK_INTERVAL_SEC = 30  # #295: 단타용 빠른 반응 (기존 60→30)
+# ============================================================
+# #392: KIS US 운영 파라미터 (코드 관리, env 분기 제거)
+# ============================================================
+# 시크릿(KIS_APP_KEY 등) + 마켓 토글(KIS_US_ENABLED, KIS_KR_ENABLED)만 env 유지.
+# 그 외 운영 값은 모두 여기서 관리 → .env 흩어짐/오타 위험 제거.
+
+# 모드 & 전략 (논문 Pure Zarattini)
+DAY_TRADING_MODE = True
+STRATEGY = "zarattini_3x_atr"  # 옵션: "zarattini_3x_atr" / "zarattini_bar1" / "breakout" / "mean_reversion"
+
+# 폴링 (논문 즉시 진입 정확도)
+TICK_INTERVAL_SEC = 20  # 코드 최소 15초 강제
+INSUFFICIENT_FUNDS_COOLDOWN_SEC = 300  # 자금 부족 시 종목별 cooldown
+REBUY_COOLDOWN_SEC = 0  # in-memory cooldown 사용 안 함 (#391 DB 1일 1회 룰로 충분)
+
+# OHLCV 봉 단위 — 논문은 5분봉 (zarattini/breakout 모두)
+OHLCV_INTERVAL_BREAKOUT = "5min"
+OHLCV_INTERVAL_ZARATTINI = "5min"
+OHLCV_INTERVAL_MEANREV = "15min"
+OHLCV_INTERVAL_SWING = "day"
+
+# 매수 조건 (breakout/meanrev 모드용)
+RSI_OVERSOLD = 35
+RSI_OVERBOUGHT = 70
+VOLUME_SPIKE_MULTIPLIER = 1.6
+
+# ORB 형성 시간 (분)
+ORB_MINUTES_DAY_TRADING = 5  # 논문: 첫 5분봉
+ORB_MINUTES_SWING = 30
+
+# 손절/익절/트레일링 디폴트
+# zarattini_3x_atr: 손절은 ATR_STOP_PCT 기반, TP/TR 사실상 비활성
+TAKE_PROFIT_PCT_ZARATTINI = 999.0
+STOP_LOSS_PCT_ZARATTINI = -4.0  # 폴백 (stop_loss_price 우선)
+TRAILING_STOP_PCT_ZARATTINI = -99.0  # 비활성
+# meanrev 단타
+TAKE_PROFIT_PCT_MEANREV = 4.0
+STOP_LOSS_PCT_MEANREV = -4.0
+TRAILING_STOP_PCT_MEANREV = -2.0
+# 스윙
+TAKE_PROFIT_PCT_SWING = 10.0
+STOP_LOSS_PCT_SWING = -10.0
+TRAILING_STOP_PCT_SWING = -3.0
+
+# 마감 윈도우 (NY 시간 기준 분)
+NO_BUY_BEFORE_CLOSE_MIN = 30  # 마감 30분 전부터 매수 금지
+FORCE_SELL_BEFORE_CLOSE_MIN = 10  # 마감 10분 전 강제 청산
+
+# Pure Zarattini 논문 파라미터 (논문 그대로)
+ATR_STOP_PCT = 5.0  # 0.05 × ATR(14)
+ATR_PERIOD = 14
+DOJI_THRESHOLD_PCT = 0.05
+RISK_PCT_PER_TRADE = 1.0
+R_MULTIPLE_TARGET = 10.0
+
+# 종목당 최대 포지션 (#309: 풀매수, 여러 종목은 신뢰도 정렬로 순차)
+MAX_POSITION_PER_SYMBOL_PCT = 100.0
 
 
 def _parse_universe(db: "Database | None" = None) -> list[str]:
@@ -115,7 +165,8 @@ def _parse_universe(db: "Database | None" = None) -> list[str]:
         except Exception:
             pass  # DB 조회 실패 시 env로 fallback
 
-    raw = os.getenv("KIS_US_UNIVERSE", "").strip()
+    # #392: env KIS_US_UNIVERSE 제거 — DB 우선 정책. fallback은 DEFAULT_US_UNIVERSE.
+    raw = ""
     if raw:
         candidates = [s.strip().upper() for s in raw.split(",") if s.strip()]
     else:
@@ -127,67 +178,53 @@ def _build_params(universe_size: int) -> KISStrategyParams:
     """env 기반 전략 파라미터 생성.
 
     #309: 종목당 한도 = 100% (풀매수). 여러 종목 활성화 시 신뢰도 정렬로 순차 매수.
-    디폴트는 (전략, 단타모드)에 따라 다름:
-    - 스윙: TP +10% / SL -10% / TR -3%
-    - 단타 + mean_reversion: TP +4% / SL -4% / TR -2%
-    - 단타 + breakout (#305 Zarattini): TP 사실상 무한 / SL OR_low (동적) / TR 끔
-      * 손절은 OR_low (KISBuySignal.stop_loss_price)로 동적
-      * 익절/트레일링 X — EOD 청산이 처리 (force_sell_window 10분 전)
-      * 폴백 SL -4% (만약 stop_loss_price 누락 시)
-    env로 명시적 오버라이드 가능.
+    #392: env 분기 제거 — 운영 파라미터는 위쪽 모듈 상수에서 관리.
+    전략별 TP/SL/TR/ORB:
+    - zarattini_3x_atr / zarattini_bar1 / breakout: TP 999, SL -4 (폴백), TR -99, ORB 5분
+    - mean_reversion (단타): TP +4 / SL -4 / TR -2 / ORB 30분
+    - 스윙: TP +10 / SL -10 / TR -3 / ORB 30분
     """
     if universe_size <= 0:
         universe_size = 1
-    is_day_trading = os.getenv("KIS_US_DAY_TRADING", "false").lower() == "true"
-    strategy = os.getenv("KIS_US_STRATEGY", "breakout" if is_day_trading else "mean_reversion").strip().lower()
+    is_day_trading = DAY_TRADING_MODE
+    strategy = STRATEGY.lower()
 
-    if is_day_trading and strategy == "zarattini_3x_atr":
-        # #364 Pure Zarattini 3X 변형 — TQQQ 변형 +9,350% / 93% 알파
-        # 진입: bar1 양봉, 손절: 0.05 × ATR(14), TP: 없음, EOD까지 hold
-        default_tp = "999"     # TP 없음 (절대가 None으로 처리)
-        default_sl = "-4"      # 폴백 (stop_loss_price가 우선)
-        default_tr = "-99"     # 트레일링 끔
-        default_orb = "5"
-    elif is_day_trading and strategy == "zarattini_bar1":
-        # #364 Pure Zarattini Bar-1 baseline — 10R TP, bar1 low SL
-        default_tp = "999"
-        default_sl = "-4"
-        default_tr = "-99"
-        default_orb = "5"
-    elif is_day_trading and strategy == "breakout":
-        # 기존 ORB+VWAP+거래량 spike 혼합 모드
-        default_tp = "999"
-        default_sl = "-4"
-        default_tr = "-99"
-        default_orb = "5"
+    if is_day_trading and strategy in ("zarattini_3x_atr", "zarattini_bar1", "breakout"):
+        tp = TAKE_PROFIT_PCT_ZARATTINI
+        sl = STOP_LOSS_PCT_ZARATTINI
+        tr = TRAILING_STOP_PCT_ZARATTINI
+        orb = ORB_MINUTES_DAY_TRADING
     elif is_day_trading:
-        default_tp = "4"
-        default_sl = "-4"
-        default_tr = "-2"
-        default_orb = "30"
+        # mean_reversion 단타
+        tp = TAKE_PROFIT_PCT_MEANREV
+        sl = STOP_LOSS_PCT_MEANREV
+        tr = TRAILING_STOP_PCT_MEANREV
+        orb = ORB_MINUTES_SWING  # mean_reversion은 30분 ORB
     else:
-        default_tp = "10"
-        default_sl = "-10"
-        default_tr = "-3"
-        default_orb = "30"
+        # 스윙
+        tp = TAKE_PROFIT_PCT_SWING
+        sl = STOP_LOSS_PCT_SWING
+        tr = TRAILING_STOP_PCT_SWING
+        orb = ORB_MINUTES_SWING
+
     return KISStrategyParams(
-        rsi_oversold=float(os.getenv("KIS_US_RSI_OVERSOLD", "35")),
-        rsi_overbought=float(os.getenv("KIS_US_RSI_OVERBOUGHT", "70")),
-        take_profit_pct=float(os.getenv("KIS_US_TAKE_PROFIT_PCT", default_tp)),
-        stop_loss_pct=float(os.getenv("KIS_US_STOP_LOSS_PCT", default_sl)),
-        trailing_stop_pct=float(os.getenv("KIS_US_TRAILING_PCT", default_tr)),
-        max_position_per_symbol_pct=100.0,  # #309: 종목당 풀매수. 여러 종목은 신뢰도 정렬로 순차
+        rsi_oversold=RSI_OVERSOLD,
+        rsi_overbought=RSI_OVERBOUGHT,
+        take_profit_pct=tp,
+        stop_loss_pct=sl,
+        trailing_stop_pct=tr,
+        max_position_per_symbol_pct=MAX_POSITION_PER_SYMBOL_PCT,
         day_trading_mode=is_day_trading,
-        no_buy_window_minutes_before_close=int(os.getenv("KIS_US_NO_BUY_BEFORE_CLOSE_MIN", "30")),
-        force_sell_window_minutes_before_close=int(os.getenv("KIS_US_FORCE_SELL_BEFORE_CLOSE_MIN", "10")),
-        orb_minutes=int(os.getenv("KIS_US_ORB_MINUTES", default_orb)),
-        volume_spike_multiplier=float(os.getenv("KIS_US_VOLUME_SPIKE", "2.0")),
-        # #364 Pure Zarattini 파라미터
-        doji_threshold_pct=float(os.getenv("KIS_US_DOJI_THRESHOLD_PCT", "0.05")),
-        risk_pct_per_trade=float(os.getenv("KIS_US_RISK_PCT", "1.0")),
-        r_multiple_target=float(os.getenv("KIS_US_R_MULTIPLE", "10.0")),
-        atr_stop_pct=float(os.getenv("KIS_US_ATR_STOP_PCT", "5.0")),
-        atr_period=int(os.getenv("KIS_US_ATR_PERIOD", "14")),
+        no_buy_window_minutes_before_close=NO_BUY_BEFORE_CLOSE_MIN,
+        force_sell_window_minutes_before_close=FORCE_SELL_BEFORE_CLOSE_MIN,
+        orb_minutes=orb,
+        volume_spike_multiplier=VOLUME_SPIKE_MULTIPLIER,
+        # Pure Zarattini 파라미터 (논문 그대로)
+        doji_threshold_pct=DOJI_THRESHOLD_PCT,
+        risk_pct_per_trade=RISK_PCT_PER_TRADE,
+        r_multiple_target=R_MULTIPLE_TARGET,
+        atr_stop_pct=ATR_STOP_PCT,
+        atr_period=ATR_PERIOD,
     )
 
 
@@ -220,21 +257,19 @@ class KISUSBot:
         )
         self._universe = _parse_universe(self._db)  # DB 우선
         self._params = _build_params(len(self._universe))
-        self._rebuy_cooldown_sec = int(os.getenv("KIS_US_REBUY_COOLDOWN_SEC", "0"))
-        self._tick_interval_sec = max(15, int(os.getenv("KIS_US_TICK_INTERVAL_SEC", str(DEFAULT_TICK_INTERVAL_SEC))))
-        self._heartbeat_every_n_ticks = max(1, 300 // self._tick_interval_sec)  # ~5분에 한 번 살아있음 핑
+        # #392: 운영 파라미터 코드 상수에서 직접 (env 분기 제거)
+        self._rebuy_cooldown_sec = REBUY_COOLDOWN_SEC
+        self._tick_interval_sec = max(15, TICK_INTERVAL_SEC)
+        self._heartbeat_every_n_ticks = max(1, 300 // self._tick_interval_sec)  # ~5분 1회 살아있음 핑
         self._tick_count = 0
-        # #303 전략 선택 — 단타 디폴트 "breakout" (VWAP+ORB+거래량 spike)
-        default_strategy = "breakout" if self._params.day_trading_mode else "mean_reversion"
-        self._strategy = os.getenv("KIS_US_STRATEGY", default_strategy).strip().lower()
-        # OHLCV 봉 단위 — breakout은 5분봉 표준, meanrev는 15분봉, 스윙은 일봉
-        if self._strategy == "breakout":
-            default_interval = "5min"
+        self._strategy = STRATEGY.lower()
+        # OHLCV 봉 단위 — 전략별 매핑 (모두 5분봉, 단 mean_reversion만 15분봉)
+        if self._strategy in ("zarattini_3x_atr", "zarattini_bar1", "breakout"):
+            self._ohlcv_interval = OHLCV_INTERVAL_ZARATTINI  # 5min (논문 정확)
         elif self._params.day_trading_mode:
-            default_interval = "15min"
+            self._ohlcv_interval = OHLCV_INTERVAL_MEANREV  # 15min
         else:
-            default_interval = "day"
-        self._ohlcv_interval = os.getenv("KIS_US_OHLCV_INTERVAL", default_interval).strip()
+            self._ohlcv_interval = OHLCV_INTERVAL_SWING  # day
         self._running = False
         self._last_buy_price: dict[str, float] = {}  # USD 기준
         self._highest_since_buy: dict[str, float] = {}
@@ -247,9 +282,7 @@ class KISUSBot:
         # #390: 자금 부족 종목별 cooldown — 한 번 자금 부족 발생 시 N분간 같은 종목 매수 시도 안 함
         # 같은 에러 반복(176회) 방지 + Slack 알림 폭주 방지
         self._insufficient_funds_cooldown: dict[str, float] = {}  # symbol -> 다음 시도 가능 epoch
-        self._insufficient_funds_cooldown_sec = int(
-            os.getenv("KIS_US_INSUFFICIENT_FUNDS_COOLDOWN_SEC", "300")  # 디폴트 5분
-        )
+        self._insufficient_funds_cooldown_sec = INSUFFICIENT_FUNDS_COOLDOWN_SEC
 
     def start(self) -> None:
         mode = "단타(데일리)" if self._params.day_trading_mode else "스윙"
