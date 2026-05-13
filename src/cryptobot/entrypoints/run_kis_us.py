@@ -141,6 +141,11 @@ DOJI_THRESHOLD_PCT = 0.05
 RISK_PCT_PER_TRADE = 1.0
 R_MULTIPLE_TARGET = 10.0
 
+# #396: 시그널-매수 가격 갭 가드 (%)
+# 시그널(bar1 close) 대비 매수 직전 가격이 이 % 이상 빠졌으면 매수 skip.
+# 매수 즉시 stop 아래 진입 방지 (#394 _time 버그 시점 SOXL -1.95% 갭 같은 사례).
+GAP_GUARD_PCT = 1.0
+
 # 종목당 최대 포지션 (#309: 풀매수, 여러 종목은 신뢰도 정렬로 순차)
 MAX_POSITION_PER_SYMBOL_PCT = 100.0
 
@@ -644,6 +649,11 @@ class KISUSBot:
         self._record_evaluation(symbol, price_usd, signal_, df=df, holds_already=False)
         if not signal_.should_buy:
             logger.debug("%s 매수 미판정: %s", symbol, signal_.reason)
+            #396: 도지/음봉 skip을 일일 history에 기록 (매일 1행, 첫 평가 시점)
+            pattern = getattr(signal_, "bar1_pattern", None)
+            if pattern in ("doji", "bearish") and self._params.day_trading_mode:
+                reason_short = "도지" if pattern == "doji" else "음봉 (페어 평가)"
+                self._record_history_skip(symbol, signal_, reason_short)
             return signal_, None, None, None
 
         return signal_, sl_price, tp_price, rps
@@ -709,6 +719,23 @@ class KISUSBot:
                 )
                 continue
 
+            # #396: 시그널-매수 가격 갭 가드
+            # 시그널 발생 시점(bar1 close) 대비 현재가가 -1% 이상 빠졌으면 매수 skip
+            # → 매수 즉시 stop 아래로 진입하는 케이스 방지 (시그널 시점부터 진입까지
+            # 가격이 크게 빠진 경우. 봇 재시작·delay·burst 시 발생)
+            signal_price = getattr(sig, "signal_price", None)
+            if signal_price and signal_price > 0:
+                gap_pct = (price_usd - signal_price) / signal_price * 100
+                if gap_pct < -GAP_GUARD_PCT:
+                    skip_msg = (
+                        f"{symbol} 갭 가드 skip — 시그널 ${signal_price:.2f} → 현재 ${price_usd:.2f} "
+                        f"({gap_pct:+.2f}%, 임계 -{GAP_GUARD_PCT}%)"
+                    )
+                    logger.warning(skip_msg)
+                    # 도지처럼 "오늘 안 산 날"로 history 기록
+                    self._record_history_skip(symbol, sig, f"갭 가드 ({gap_pct:.2f}%)")
+                    continue
+
             # #390: 매수 직전 사전 검증 — qty × price × 1.015 (buffer) ≤ budget
             estimated_cost = qty * price_usd * 1.015
             if estimated_cost > budget_usd:
@@ -717,6 +744,7 @@ class KISUSBot:
                     symbol, estimated_cost, budget_usd,
                 )
                 self._mark_insufficient_funds(symbol, budget_usd, estimated_cost)
+                self._record_history_skip(symbol, sig, "자금 부족")
                 continue
 
             logger.info(
@@ -834,6 +862,57 @@ class KISUSBot:
         except Exception as e:
             logger.exception("일일 결산 알림 실패: %s", e)
 
+    def _record_history_skip(self, symbol: str, sig, skip_reason: str) -> None:
+        """#396: 매수 안 한 날(도지/음봉/갭 가드/자금 부족) history 기록."""
+        try:
+            from cryptobot.notifier.kis_us_reports import record_daily_history
+
+            record_daily_history(
+                self._db,
+                ticker=symbol,
+                bar1_pattern=getattr(sig, "bar1_pattern", None),
+                bar1_body_pct=getattr(sig, "bar1_body_pct", None),
+                signal_price=getattr(sig, "signal_price", None),
+                bought=False,
+                skip_reason=skip_reason,
+            )
+        except Exception as e:
+            logger.debug("history skip 기록 실패 (%s): %s", symbol, e)
+
+    def _record_history_buy(self, symbol: str, sig, qty: float, buy_price: float) -> None:
+        """#396: 매수 체결 시 history 기록."""
+        try:
+            from cryptobot.notifier.kis_us_reports import record_daily_history
+
+            record_daily_history(
+                self._db,
+                ticker=symbol,
+                bar1_pattern=getattr(sig, "bar1_pattern", None),
+                bar1_body_pct=getattr(sig, "bar1_body_pct", None),
+                signal_price=getattr(sig, "signal_price", None),
+                bought=True,
+                buy_price=buy_price,
+                qty=qty,
+            )
+        except Exception as e:
+            logger.debug("history buy 기록 실패 (%s): %s", symbol, e)
+
+    def _record_history_sell(self, symbol: str, sell_price: float, pnl_usd: float, pnl_pct: float, sell_type: str) -> None:
+        """#396: 매도 시 history 업데이트."""
+        try:
+            from cryptobot.notifier.kis_us_reports import update_daily_history_sell
+
+            update_daily_history_sell(
+                self._db,
+                ticker=symbol,
+                sell_price=sell_price,
+                pnl_usd=pnl_usd,
+                pnl_pct=pnl_pct,
+                sell_type=sell_type,
+            )
+        except Exception as e:
+            logger.debug("history sell 기록 실패 (%s): %s", symbol, e)
+
     def _mark_insufficient_funds(self, symbol: str, budget: float, cost: float) -> None:
         """#390: 자금 부족 종목 cooldown 등록 + Slack 1회 알림."""
         cd_sec = self._insufficient_funds_cooldown_sec
@@ -899,6 +978,21 @@ class KISUSBot:
             trigger_reason=reason,
             order_uuid=result.order_uuid,
         )
+        #396: 일일 history 기록 (매수 체결)
+        try:
+            from cryptobot.notifier.kis_us_reports import record_daily_history
+
+            record_daily_history(
+                self._db,
+                ticker=symbol,
+                signal_price=None,  # _buy 시점엔 sig 객체 없음 — 매수가만
+                bought=True,
+                buy_price=result.price,
+                qty=result.amount,
+            )
+        except Exception as e:
+            logger.debug("history buy 기록 실패 (%s): %s", symbol, e)
+
         if self._notifier.is_configured:
             #393: 통합 보고 포맷
             from cryptobot.notifier.kis_us_reports import format_buy
@@ -944,17 +1038,33 @@ class KISUSBot:
             profit_pct=pnl_pct,
             order_uuid=result.order_uuid,
         )
+        # sell_type 분류 (history + Slack 메시지 공통 사용)
+        reason_lower = (reason or "").lower()
+        is_eod = "day_trading_close" in reason_lower or "eod" in reason_lower or "강제" in (reason or "")
+        if is_eod:
+            sell_type = "eod_profit" if pnl_pct > 0 else "eod_loss"
+        else:
+            sell_type = "stop_loss"
+        pnl_usd_val = result.amount * (result.price - (self._last_buy_price.get(symbol, result.price)))
+
+        #396: 일일 history 업데이트 (매도)
+        try:
+            from cryptobot.notifier.kis_us_reports import update_daily_history_sell
+
+            update_daily_history_sell(
+                self._db,
+                ticker=symbol,
+                sell_price=result.price,
+                pnl_usd=pnl_usd_val,
+                pnl_pct=pnl_pct,
+                sell_type=sell_type,
+            )
+        except Exception as e:
+            logger.debug("history sell 기록 실패 (%s): %s", symbol, e)
+
         if self._notifier.is_configured:
             #393: 통합 보고 포맷 — 손절/EOD 익절/EOD 손실 분기
             from cryptobot.notifier.kis_us_reports import format_sell
-
-            # sell_type 분류
-            reason_lower = (reason or "").lower()
-            is_eod = "day_trading_close" in reason_lower or "eod" in reason_lower or "강제" in (reason or "")
-            if is_eod:
-                sell_type = "eod_profit" if pnl_pct > 0 else "eod_loss"
-            else:
-                sell_type = "stop_loss"
             # 보유 시간 추정 (last_buy_price 기준, 정확도 낮으나 표시용)
             hold_min = 0
             try:
@@ -969,14 +1079,13 @@ class KISUSBot:
                     hold_min = int((_dt.utcnow() - buy_t).total_seconds() / 60)
             except Exception:
                 pass
-            pnl_usd = result.amount * (result.price - (self._last_buy_price.get(symbol, result.price)))
             self._notifier.notify_trade_message(
                 format_sell(
                     symbol=symbol,
                     qty=result.amount,
                     price=result.price,
                     pnl_pct=pnl_pct,
-                    pnl_usd=pnl_usd,
+                    pnl_usd=pnl_usd_val,
                     hold_minutes=hold_min,
                     sell_type=sell_type,
                 )
