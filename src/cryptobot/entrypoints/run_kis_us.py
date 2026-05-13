@@ -42,7 +42,7 @@ import os
 import signal
 import sys
 import time
-from datetime import datetime, time as dtime
+from datetime import datetime, time as dtime, timezone
 from zoneinfo import ZoneInfo
 
 from cryptobot.bot.config import config
@@ -480,6 +480,29 @@ class KISUSBot:
                 logger.debug(
                     "%s 재매수 쿨다운 (%ds 중 %ds 경과)",
                     symbol, self._rebuy_cooldown_sec, int(elapsed),
+                )
+                return None
+
+        # #391: 같은 NY 거래일에 같은 종목 이미 매매 있으면 skip (논문 룰: 1일 1회)
+        # in-memory cooldown은 봇 재시작 시 사라지지만 DB 쿼리는 영속.
+        # NY timezone 정확히 사용 (EDT/EST 자동 처리).
+        if self._params.day_trading_mode:
+            ny_now = datetime.now(NY)
+            ny_midnight = ny_now.replace(hour=0, minute=0, second=0, microsecond=0)
+            ny_midnight_utc = ny_midnight.astimezone(timezone.utc)
+            already = self._db.execute(
+                """
+                SELECT id, side FROM trades
+                WHERE market = 'kis_us' AND coin = ?
+                  AND timestamp >= ?
+                LIMIT 1
+                """,
+                (symbol, ny_midnight_utc.strftime("%Y-%m-%d %H:%M:%S")),
+            ).fetchone()
+            if already:
+                logger.info(
+                    "%s NY 거래일 (오늘) 이미 %s — 1일 1회 룰 (논문) skip",
+                    symbol, dict(already)["side"],
                 )
                 return None
 
